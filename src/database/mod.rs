@@ -3,7 +3,10 @@ use deadpool_postgres::{
     Pool as PgPool
 };
 
-pub mod notes;
+pub mod folders;
+pub mod shares;
+pub mod files;
+pub mod user;
 
 
 // DB working state Check

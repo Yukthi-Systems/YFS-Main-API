@@ -1,3 +1,6 @@
-pub mod auth;
+pub mod folders;
+pub mod shares;
 pub mod health;
-pub mod sample_db;
+pub mod files;
+pub mod auth;
+pub mod user;

@@ -1,5 +1,5 @@
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use std::env::var as env_var;
-use std::time::Duration;
 
 
 pub struct PgSettings {
@@ -14,16 +14,36 @@ pub struct PgSettings {
 }
 
 
-pub struct MokaSettings {
-    pub cache_size: u64,
-    pub expiration_time: Duration,
+pub struct RedisSettings {
+    pub url: String,
+}
+
+
+#[derive(Clone)]
+pub struct RmqSettings {
+    pub domain: String,
+    pub auth_token: String, // Base64 encoded string of "username:password"
+    pub virtual_host: String,
+    pub exchange_name: String,
+    pub routing_key: String,
 }
 
 
 pub struct AppSettings {
     pub pg_settings: PgSettings,
-    pub cache_settings: MokaSettings,
+    pub redis_settings: RedisSettings,
+    pub rmq_settings: RmqSettings,
     pub enable_logging: bool,
+}
+
+
+pub struct ApiSettings {
+    pub allowed_origins: Vec<String>,
+    pub self_api_key: String,
+    pub sso_api_url: String,
+    pub sso_api_key: String,
+    pub file_store_api_key: String, // Same for all file store hosts
+    pub file_store_host: String,    // TODO: Temp. only we will later make this via SSO API (available servers per org)
 }
 
 
@@ -86,20 +106,34 @@ impl PgSettings {
 }
 
 
-impl MokaSettings {
+impl RedisSettings {
     fn from_env() -> Self {
-        let cache_size = env_var("CACHE_SIZE")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .expect("CACHE_SIZE must be a positive integer of type u64");
-        let expiration_time = env_var("CACHE_EXPIRATION_TIME")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .expect("CACHE_EXPIRATION_TIME must be a positive integer of type u64");
+        let url = env_var("REDIS_URL").expect("REDIS_URL must be set");
 
-        MokaSettings {
-            cache_size,
-            expiration_time: Duration::from_secs(expiration_time),
+        RedisSettings {
+            url,
+        }
+    }
+}
+
+
+impl RmqSettings {
+    pub fn from_env() -> Self {
+        let domain = env_var("RABBITMQ_DOMAIN").expect("RABBITMQ_DOMAIN must be set");
+        let user_name = env_var("RABBITMQ_USER_NAME").expect("RABBITMQ_USER_NAME must be set");
+        let password = env_var("RABBITMQ_PASSWORD").expect("RABBITMQ_PASSWORD must be set");
+        let virtual_host = env_var("RABBITMQ_VIRTUAL_HOST").expect("RABBITMQ_VIRTUAL_HOST must be set");
+        let exchange_name = env_var("RABBITMQ_EXCHANGE_NAME").expect("RABBITMQ_EXCHANGE_NAME must be set");
+        let routing_key = env_var("RABBITMQ_ROUTING_KEY").expect("RABBITMQ_ROUTING_KEY must be set");
+
+        let auth_token = BASE64_STANDARD.encode(format!("{}:{}", user_name, password));
+
+        RmqSettings {
+            domain,
+            auth_token,
+            virtual_host,
+            exchange_name,
+            routing_key,
         }
     }
 }
@@ -116,8 +150,43 @@ impl AppSettings {
 
         AppSettings {
             pg_settings: PgSettings::from_env(),
-            cache_settings: MokaSettings::from_env(),
+            redis_settings: RedisSettings::from_env(),
+            rmq_settings: RmqSettings::from_env(),
             enable_logging,
+        }
+    }
+}
+
+
+impl ApiSettings {
+    pub fn from_env() -> Self {
+        let allowed_origins = env_var("ALLOWED_ORIGINS")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(|entry| entry.trim())
+                    .filter(|entry| !entry.is_empty())
+                    .map(|entry| entry.to_string())
+                    .collect::<Vec<String>>()
+            })
+            .filter(|items| !items.is_empty())
+            .expect("ALLOWED_ORIGINS must be set as a comma-separated list of allowed origins or '*' for allowing all origins");
+
+        let sso_api_url = env_var("SSO_API_URL").expect("SSO_API_URL must be set");
+        let sso_api_key = env_var("SSO_API_KEY").expect("SSO_API_KEY must be set");
+
+        let self_api_key = env_var("SELF_API_KEY").expect("SELF_API_KEY must be set");
+
+        let file_store_api_key = env_var("FILE_STORE_API_KEY").expect("FILE_STORE_API_KEY must be set");
+        let file_store_host = env_var("FILE_STORE_HOST").expect("FILE_STORE_HOST must be set");
+
+        ApiSettings {
+            allowed_origins,
+            self_api_key,
+            file_store_api_key,
+            file_store_host,
+            sso_api_url,
+            sso_api_key,
         }
     }
 }

@@ -1,13 +1,28 @@
-use crate::models::initial::{AppSettings, MokaSettings, PgSettings};
+use crate::models::initial::{AppSettings, RedisSettings, PgSettings, RmqSettings, ApiSettings};
 use deadpool_postgres::{Manager, RecyclingMethod, Pool as PgPool};
-use crate::utils::{process_channel, AppCache};
+use redis::{Client, aio::MultiplexedConnection};
 use deadpool::{managed::Timeouts, Runtime};
 use actix_web::web::Data as webData;
 use tokio_postgres::{Config, NoTls};
-use std::sync::mpsc::Sender;
+use std::sync::LazyLock;
 use std::time::Duration;
-use log::{info, warn};
 
+
+
+pub struct AppState {
+    pub pg_pool: PgPool,
+    pub redis_cache: MultiplexedConnection,
+}
+
+
+pub static API_SETTINGS: LazyLock<ApiSettings> = LazyLock::new(|| {
+    ApiSettings::from_env()
+});
+
+
+pub static RMQ_SETTINGS: LazyLock<RmqSettings> = LazyLock::new(|| {
+    RmqSettings::from_env()
+});
 
 
 async fn warm_pool(pool: &PgPool, pg: &PgSettings) {
@@ -27,16 +42,16 @@ async fn warm_pool(pool: &PgPool, pg: &PgSettings) {
                 ok += 1;
             }
             Err(_) => {
-                warn!("Pool warm-up: failed to get a connection");
+                log::warn!("Pool warm-up: failed to get a connection");
             }
         }
     }
 
     // Log the warm-up results
     if ok == 0 {
-        warn!("Pool warm-up failed, all attempts to get a connection were unsuccessful: {warm_n}");
+        log::warn!("Pool warm-up failed, all attempts to get a connection were unsuccessful: {warm_n}");
     } else {
-        info!("Pool warm-up: {ok} conns warmed up out of {warm_n}. Success rate: {:.2}%", ok as f64 / warm_n as f64 * 100.0);
+        log::info!("Pool warm-up: {ok} conns warmed up out of {warm_n}. Success rate: {:.2}%", ok as f64 / warm_n as f64 * 100.0);
     }
 }
 
@@ -76,30 +91,45 @@ fn init_pg_pool(pg_settings: &PgSettings) -> PgPool {
         .build()
         .expect("failed to build pg pool");
 
-    info!("Postgres pool initialized (max_pool_size={})", pg_settings.max_pool_size);
+    log::info!("Postgres pool initialized (max_pool_size={})", pg_settings.max_pool_size);
     pool
 }
 
 
-fn init_cache(cache_settings: &MokaSettings) -> AppCache {
-    // Build the AppCache
-    let cache: AppCache = AppCache::builder()
-        .max_capacity(cache_settings.cache_size)
-        .time_to_live(cache_settings.expiration_time)
-        .build();
+async fn init_redis(redis_settings: &RedisSettings) -> MultiplexedConnection {
+    let client = Client::open(redis_settings.url.clone()).expect("Failed to create Redis client");
 
-    info!("In-memory cache initialized (max_capacity={})", cache_settings.cache_size);
-    cache
+    let mut conn = client.get_multiplexed_async_connection().await.expect("Failed to connect to Redis");
+
+    let pong: String = redis::cmd("PING").query_async(&mut conn).await.expect("Failed to ping Redis");
+    if pong != "PONG" {
+        log::warn!("Unexpected PING response from Redis: {}", pong);
+        panic!("Failed to connect to Redis");
+    }
+
+    conn
 }
 
 
-pub async fn initialize() -> (webData<PgPool>, webData<AppCache>, webData<Sender<u8>>) {
+pub fn cors_allowed_origin_fn(origin: &actix_web::http::header::HeaderValue, _: &actix_web::dev::RequestHead) -> bool {
+    let origin_str = origin.to_str().unwrap_or("");
+    let allowed_origins = &API_SETTINGS.allowed_origins;
+
+    if allowed_origins.iter().any(|item| item == "*") {
+        return true;
+    }
+
+    allowed_origins.iter().any(|item| item == origin_str)
+}
+
+
+pub async fn initialize() -> webData<AppState> {
     // Preparing to start the server by collecting environment variables
     let app_settings: AppSettings = AppSettings::from_env();
 
     if app_settings.enable_logging {
         let _ = env_logger::try_init(); // Initialize the logger to log all the logs
-        info!("Starting the server by initializing the application state");
+        log::info!("Starting the server by initializing the application state");
     }
 
     // Initialize the Postgres client
@@ -108,13 +138,17 @@ pub async fn initialize() -> (webData<PgPool>, webData<AppCache>, webData<Sender
     // Warm up the connection pool if enabled
     warm_pool(&postgres_state, &app_settings.pg_settings).await;
 
-    // Initialize the in-memory cache (Moka)
-    let in_mem_cache = init_cache(&app_settings.cache_settings);
+    // Initialize Redis client
+    let redis_client = init_redis(&app_settings.redis_settings).await;
 
-    // Initialize the channel
-    let (tx, rx) = std::sync::mpsc::channel::<u8>();
-    process_channel(rx);
+    // TODO: Add a background job to clean the expired file locks and old file versions
+    // Maybe we need to have a when its locked timestamp to determine if the lock has expired (>1day)
+    // And for file deletion, simple file.created_at < 1 day will just delete it too
+    // Run every 6 Hours, Add PGSQL index for better performance on cleanup queries
 
     // Wrap the state of the application and share it
-    (webData::new(postgres_state), webData::new(in_mem_cache), webData::new(tx))
+    webData::new(AppState {
+        pg_pool: postgres_state,
+        redis_cache: redis_client,
+    })
 }

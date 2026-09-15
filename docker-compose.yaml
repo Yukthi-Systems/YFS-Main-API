@@ -1,31 +1,50 @@
 services:
-  rust-api-template:
-    image: neko7nik/rust-api-template:latest
-    container_name: rust-api-template
+  yfs-main-api:
+    image: rjyspl/yfs-main-api:latest
+    container_name: yfs-main-api
 
     environment:
-      - TZ=Asia/Kolkata
-
       # Logging and Runtime
-      - ENABLE_LOGGING=True
-      - RUST_LOG=rust_api=TRACE
-      - API_WORKERS_COUNT=4
+      - ENABLE_LOGGING=<ENABLE_LOGGING>
+      - RUST_LOG=rust_api=<LOG_LEVEL>
+      - API_WORKERS_COUNT=<NUMBER_OF_WORKERS>
+      - ALLOWED_ORIGINS=<YOUR_ALLOWED_ORIGINS>,<YOUR_ALLOWED_ORIGINS_2>
+      - SELF_API_KEY=<SELF_API_KEY>
+      - FILE_STORE_API_KEY=<FILE_STORE_API_KEY>
+      - FILE_STORE_HOST=<FILE_STORE_HOST>
+      - SSO_API_URL=<SSO_API_URL>
+      - SSO_API_KEY=<SSO_API_KEY>
 
       # PostgreSQL Database
-      - POSTGRES_DB_URL=postgres://user:password@db.nekonik.com:5432/nekonik
-      - PG_POOL_MAX_SIZE=100
-      - PG_CONN_TIMEOUT=10
-      - PG_POOL_WAIT_TIMEOUT=5
-      - PG_POOL_NEW_CONNECTION_TIMEOUT=5
-      - PG_POOL_RECYCLE_TIMEOUT=5
-      - PG_POOL_WARM_POOL=True
-      - PG_POOL_WARM_POOL_SIZE=64
+      - POSTGRES_DB_URL=postgres://my_user:Password@rust-api-postgres:5432/yfs
+      - PG_CONN_TIMEOUT=<PG_CONN_TIMEOUT>
+      - PG_POOL_MAX_SIZE=<PG_POOL_MAX_SIZE>
+      - PG_POOL_WAIT_TIMEOUT=<PG_POOL_WAIT_TIMEOUT>
+      - PG_POOL_NEW_CONNECTION_TIMEOUT=<PG_POOL_NEW_CONNECTION_TIMEOUT>
+      - PG_POOL_RECYCLE_TIMEOUT=<PG_POOL_RECYCLE_TIMEOUT>
+      - PG_POOL_WARM_POOL=<PG_POOL_WARM_POOL>
+      - PG_POOL_WARM_POOL_SIZE=<PG_POOL_WARM_POOL_SIZE>
 
-      # In-Memory Cache
-      - CACHE_SIZE=1000
-      - CACHE_EXPIRATION_TIME=300
+      # Redis Cache
+      - REDIS_URL=redis://rust-api-redis:6379
+
+      # RMQ Message Queue
+      - RABBITMQ_DOMAIN=<RABBITMQ_DOMAIN>
+      - RABBITMQ_USER_NAME=<RABBITMQ_USER_NAME>
+      - RABBITMQ_PASSWORD=<RABBITMQ_PASSWORD>
+      - RABBITMQ_VIRTUAL_HOST=<RABBITMQ_VIRTUAL_HOST>
+      - RABBITMQ_EXCHANGE_NAME=amq.default
+      - RABBITMQ_ROUTING_KEY=<RABBITMQ_ROUTING_KEY>
+
+    networks:
+      - yfs-network
 
     ports:
       - "127.0.0.1:8686:8686"
 
     restart: always
+
+
+networks:
+  yfs-network:
+    external: true
