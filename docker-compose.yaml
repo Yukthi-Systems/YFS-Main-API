@@ -1,0 +1,31 @@
+services:
+  rust-api-template:
+    image: neko7nik/rust-api-template:latest
+    container_name: rust-api-template
+
+    environment:
+      - TZ=Asia/Kolkata
+
+      # Logging and Runtime
+      - ENABLE_LOGGING=True
+      - RUST_LOG=rust_api=TRACE
+      - API_WORKERS_COUNT=4
+
+      # PostgreSQL Database
+      - POSTGRES_DB_URL=postgres://user:password@db.nekonik.com:5432/nekonik
+      - PG_POOL_MAX_SIZE=100
+      - PG_CONN_TIMEOUT=10
+      - PG_POOL_WAIT_TIMEOUT=5
+      - PG_POOL_NEW_CONNECTION_TIMEOUT=5
+      - PG_POOL_RECYCLE_TIMEOUT=5
+      - PG_POOL_WARM_POOL=True
+      - PG_POOL_WARM_POOL_SIZE=64
+
+      # In-Memory Cache
+      - CACHE_SIZE=1000
+      - CACHE_EXPIRATION_TIME=300
+
+    ports:
+      - "127.0.0.1:8686:8686"
+
+    restart: always
