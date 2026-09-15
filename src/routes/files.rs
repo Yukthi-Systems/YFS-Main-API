@@ -358,3 +358,34 @@ pub async fn move_file(request: HttpRequest, destination_folder_id: web::Path<Uu
 
     Ok(HttpResponse::Ok().finish())
 }
+
+
+#[post("/get-info")]
+pub async fn get_file_basic_info(request: HttpRequest, file_request: web::Json<FileOpsRequest>, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    let operation_type = FileOpsType::Download;
+
+    // Validate the file operation request
+    file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
+
+    // File ID should be provided for download operations
+    let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step
+
+    // Check file access permissions for the requested file
+    let file_access = authorize_file_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &file_request.folder_id,
+        &file_id,
+        file_request.shared_folder_id,
+        file_request.shared_folder_id.map(|_| SharedPermission::Download),
+    ).await?;
+
+    // Validate the file operation against the current file information
+    file_request.validate_against_info(&operation_type, &file_access.file_info)?;
+
+    Ok(HttpResponse::Ok().json(file_access.file_info))
+}

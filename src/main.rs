@@ -87,9 +87,9 @@ async fn main() -> std::io::Result<()> {
                 .wrap(from_fn(middleware::auth::auth_check))
                 .service(files::request_file_download)
                 .service(files::request_file_upload)
+                .service(files::get_file_basic_info)
                 .service(files::update_file_info)
                 .service(files::move_file)
-                // .service(files::get_file_info)
                 // .service(files::copy_file_by_version)    // copy - copy only specific file version to a folder
                 // .service(files::delete_file_version)        // Delete file Version from GO API
                 // .service(files::delete_file)        // Delete file from GO API
