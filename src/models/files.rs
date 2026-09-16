@@ -73,6 +73,20 @@ pub struct FileStorageAPI {
     pub max_operation_time: u16,
 }
 
+// TODO
+// #[derive(Serialize)]
+// pub struct FileStorageWopiAPI {
+//     pub file_name: String,
+//     pub file_location: String,
+//     pub server_host: String,
+//     pub file_id: Uuid,
+//     pub owner_id: Uuid,
+//     pub latest_file_version: i32,
+//     pub user_id: Uuid,
+//     pub user_name: String,
+//     pub can_write: bool,
+// }
+
 
 // ------- Implementations ------- //
 
@@ -216,7 +230,7 @@ impl FileOpsRequest {
         // It will max out at u16::MAX seconds (approximately 18.2 hours)
         (180.0 * size_mb.sqrt())
             .round()
-            .clamp(0.0, u16::MAX as f64) as u16
+            .clamp(7.0, u16::MAX as f64) as u16
     }
 
     pub fn generate_api_struct(&self, file_location: String, owner_id: Uuid, file_id: Uuid) -> FileStorageAPI {
