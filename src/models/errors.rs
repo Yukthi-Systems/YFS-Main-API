@@ -35,11 +35,32 @@ struct ErrorResp {
 // ------- Implementations ------- //
 
 
+
+fn pg_error(db_error: &tokio_postgres::Error, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if let Some(db_err) = db_error.as_db_error() {
+        write!(
+            f,
+            "PostgreSQL error: {} | code={} | severity={} | detail={} | hint={} | table={} | column={} | constraint={}",
+            db_err.message(),
+            db_err.code().code(),
+            db_err.severity(),
+            db_err.detail().unwrap_or("-"),
+            db_err.hint().unwrap_or("-"),
+            db_err.table().unwrap_or("-"),
+            db_err.column().unwrap_or("-"),
+            db_err.constraint().unwrap_or("-"),
+        )
+    } else {
+        write!(f, "PostgreSQL client error: {}", db_error)
+    }
+}
+
+
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AppError::DbPool(e) => write!(f, "DB: {}", e),
-            AppError::Pg(e) => write!(f, "PostgreSQL: {}", e),
+            AppError::Pg(e) => pg_error(e, f),
             AppError::Redis(e) => write!(f, "Redis: {}", e),
             AppError::SerDe(e) => write!(f, "JSON: {}", e),
             AppError::Unauthorized(s) => write!(f, "Unauthorized: {}", s),

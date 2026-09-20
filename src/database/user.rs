@@ -1,12 +1,10 @@
 use crate::models::user::{BasicUserInfo, SessionUser};
-use deadpool_postgres::{
-    PoolError as PgError,
-    Pool as PgPool
-};
+use deadpool_postgres::Pool as PgPool;
+use crate::models::errors::AppError;
 use uuid::Uuid;
 
 
-pub async fn create_user_session(db_pool: &PgPool, user_session: &SessionUser) -> Result<(), PgError> {
+pub async fn create_user_session(db_pool: &PgPool, user_session: &SessionUser) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     // Create a user if not exists, then create the session with the provided details
@@ -65,7 +63,7 @@ pub async fn create_user_session(db_pool: &PgPool, user_session: &SessionUser) -
 }
 
 
-pub async fn update_user_session_fcm_token(db_pool: &PgPool, user_id: &Uuid, fcm_token: &str) -> Result<(), PgError> {
+pub async fn update_user_session_fcm_token(db_pool: &PgPool, user_id: &Uuid, fcm_token: &str) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     client
@@ -83,7 +81,7 @@ pub async fn update_user_session_fcm_token(db_pool: &PgPool, user_id: &Uuid, fcm
 }
 
 
-pub async fn update_user_last_seen(db_pool: &PgPool, user_id: &Uuid) -> Result<(), PgError> {
+pub async fn update_user_last_seen(db_pool: &PgPool, user_id: &Uuid) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     client
@@ -101,7 +99,7 @@ pub async fn update_user_last_seen(db_pool: &PgPool, user_id: &Uuid) -> Result<(
 }
 
 
-pub async fn delete_user_session(db_pool: &PgPool, user_id: &Uuid, refresh_token: &Uuid) -> Result<(), PgError> {
+pub async fn delete_user_session(db_pool: &PgPool, user_id: &Uuid, refresh_token: &Uuid) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     client
@@ -117,7 +115,7 @@ pub async fn delete_user_session(db_pool: &PgPool, user_id: &Uuid, refresh_token
 }
 
 
-pub async fn check_user_session(db_pool: &PgPool, refresh_token: &Uuid, sso_token: &str, user_id: &Uuid) -> Result<bool, PgError> {
+pub async fn check_user_session(db_pool: &PgPool, refresh_token: &Uuid, sso_token: &str, user_id: &Uuid) -> Result<bool, AppError> {
     let client = db_pool.get().await?;
 
     let row = client
@@ -142,7 +140,7 @@ pub async fn check_user_session(db_pool: &PgPool, refresh_token: &Uuid, sso_toke
 }
 
 
-pub async fn get_user_by_id(db_pool: &PgPool, user_id: &Uuid, organization_id: &Uuid) -> Result<Option<BasicUserInfo>, PgError> {
+pub async fn get_user_by_id(db_pool: &PgPool, user_id: &Uuid, organization_id: &Uuid) -> Result<Option<BasicUserInfo>, AppError> {
     let client = db_pool.get().await?;
 
     let row = client
@@ -160,7 +158,7 @@ pub async fn get_user_by_id(db_pool: &PgPool, user_id: &Uuid, organization_id: &
 }
 
 
-pub async fn search_user_by_email(db_pool: &PgPool, email: &str, organization_id: &Uuid) -> Result<Vec<BasicUserInfo>, PgError> {
+pub async fn search_user_by_email(db_pool: &PgPool, email: &str, organization_id: &Uuid) -> Result<Vec<BasicUserInfo>, AppError> {
     let client = db_pool.get().await?;
 
     // Note: Fakes a private_info column to maintain consistency with BasicUserInfo
@@ -181,7 +179,7 @@ pub async fn search_user_by_email(db_pool: &PgPool, email: &str, organization_id
 }
 
 
-pub async fn update_user_public_info(db_pool: &PgPool, user_id: &Uuid, public_info: &serde_json::Value) -> Result<(), PgError> {
+pub async fn update_user_public_info(db_pool: &PgPool, user_id: &Uuid, public_info: &serde_json::Value) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     client
@@ -198,7 +196,8 @@ pub async fn update_user_public_info(db_pool: &PgPool, user_id: &Uuid, public_in
     Ok(())
 }
 
-pub async fn update_user_private_info(db_pool: &PgPool, user_id: &Uuid, private_info: &serde_json::Value) -> Result<(), PgError> {
+
+pub async fn update_user_private_info(db_pool: &PgPool, user_id: &Uuid, private_info: &serde_json::Value) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
     client
@@ -213,4 +212,26 @@ pub async fn update_user_private_info(db_pool: &PgPool, user_id: &Uuid, private_
         .await?;
 
     Ok(())
+}
+
+
+pub async fn calculate_used_bytes_by_email(db_pool: &PgPool, user_email: &str) -> Result<i64, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            SELECT COALESCE(SUM(fv.file_size), 0)::BIGINT AS total_used_bytes
+            FROM users u
+            LEFT JOIN files f
+                ON f.user_id = u.user_id
+            LEFT JOIN file_versions fv
+                ON fv.file_id = f.file_id
+            WHERE u.email = $1
+            "#,
+            &[&user_email],
+        )
+        .await?;
+
+    Ok(row.get("total_used_bytes"))
 }

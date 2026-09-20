@@ -41,6 +41,13 @@ async fn main() -> std::io::Result<()> {
                 // .service(auth::delete_user_info)
             )
             .service(
+                actix_scope("/internal/data")
+                .wrap(from_fn(middleware::auth::api_key_check))
+                .service(user::get_total_used_bytes)
+                // .service(files::callback_file_delete)
+                // .service(auth::delete_user_info)
+            )
+            .service(
                 actix_scope("/public")
                 .service(auth::public_session_validate_password)
                 // .service(auth::public_session_validate_otp)

@@ -1,4 +1,4 @@
-use crate::database::user::{get_user_by_id, search_user_by_email, update_user_session_fcm_token, update_user_public_info, update_user_private_info};
+use crate::database::user::{get_user_by_id, search_user_by_email, update_user_session_fcm_token, update_user_public_info, update_user_private_info, calculate_used_bytes_by_email};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, patch, web};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::models::user::SessionUser;
@@ -65,4 +65,13 @@ pub async fn update_user_info(request: HttpRequest, update_public_info: web::Pat
     }
 
     Ok(HttpResponse::Ok().body("User info updated successfully"))
+}
+
+
+#[get("/user/{user_email}/quota")]
+pub async fn get_total_used_bytes(user_email: web::Path<String>, state: web::Data<AppState>) -> ApiResponse {
+    // Internal API call
+    let total_used_bytes = calculate_used_bytes_by_email(&state.pg_pool, &user_email).await?;
+
+    Ok(HttpResponse::Ok().json(total_used_bytes))
 }
