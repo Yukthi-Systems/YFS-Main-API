@@ -99,7 +99,8 @@ pub async fn lock_base_file_entry(db_pool: &PgPool, folder_id: &Uuid, user_id: &
     client.execute(
         r#"
         UPDATE files
-        SET is_locked = $1
+        SET is_locked = $1,
+            updated_at = CURRENT_TIMESTAMP
         WHERE folder_id = $2 AND user_id = $3 AND file_id = $4
         "#,
         &[&is_locked, folder_id, user_id, file_id],
@@ -215,6 +216,53 @@ pub async fn move_file_to_folder(
         &[destination_folder_id, file_id, current_folder_id, user_id],
     )
     .await?;
+
+    Ok(())
+}
+
+
+pub async fn remove_all_expired_file_locks(db_pool: &PgPool) -> Result<(), AppError> {
+    let client = db_pool.get().await?;
+
+    log::info!("Executing SQL query to remove all expired file locks");
+
+    client.execute(
+        r#"
+        UPDATE files
+        SET is_locked = FALSE,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE is_locked = TRUE AND updated_at < NOW() - INTERVAL '65536 seconds'
+        "#,
+        &[],
+    )
+    .await?;
+
+    log::info!("Expired file locks removed successfully");
+
+    Ok(())
+}
+
+
+pub async fn delete_all_orphaned_files(db_pool: &PgPool) -> Result<(), AppError> {
+    let client = db_pool.get().await?;
+
+    log::info!("Executing SQL query to delete all orphaned files");
+
+    client.execute(
+        r#"
+        DELETE FROM files f
+        WHERE f.created_at < NOW() - INTERVAL '65536 seconds'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM file_versions fv
+            WHERE fv.file_id = f.file_id
+        )
+        "#,
+        &[],
+    )
+    .await?;
+
+    log::info!("Orphaned files deleted successfully");
 
     Ok(())
 }

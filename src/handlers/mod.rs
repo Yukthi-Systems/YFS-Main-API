@@ -3,6 +3,7 @@ use chrono::Datelike;
 
 pub mod storage_api;
 pub mod access;
+pub mod jobs;
 pub mod auth;
 mod rmq;
 

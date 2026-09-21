@@ -1,3 +1,4 @@
+use crate::handlers::jobs::{remove_expired_file_locks, delete_trash_after_30_days, delete_orphaned_files};
 use crate::models::initial::{AppSettings, RedisSettings, PgSettings, RmqSettings, ApiSettings};
 use deadpool_postgres::{Manager, RecyclingMethod, Pool as PgPool};
 use redis::{Client, aio::MultiplexedConnection};
@@ -123,6 +124,18 @@ pub fn cors_allowed_origin_fn(origin: &actix_web::http::header::HeaderValue, _: 
 }
 
 
+fn start_background_jobs(pg_pool: PgPool) {
+    // Remove Lock on File
+    tokio::spawn(remove_expired_file_locks(pg_pool.clone()));
+
+    // Delete Trash after 30 days
+    tokio::spawn(delete_trash_after_30_days(pg_pool.clone()));
+
+    // Delete Orphaned Files
+    tokio::spawn(delete_orphaned_files(pg_pool.clone()));
+}
+
+
 pub async fn initialize() -> webData<AppState> {
     // Preparing to start the server by collecting environment variables
     let app_settings: AppSettings = AppSettings::from_env();
@@ -141,10 +154,7 @@ pub async fn initialize() -> webData<AppState> {
     // Initialize Redis client
     let redis_client = init_redis(&app_settings.redis_settings).await;
 
-    // TODO: Add a background job to clean the expired file locks and old file versions
-    // Maybe we need to have a when its locked timestamp to determine if the lock has expired (>1day)
-    // And for file deletion, simple file.created_at < 1 day will just delete it too
-    // Run every 6 Hours, Add PGSQL index for better performance on cleanup queries
+    start_background_jobs(postgres_state.clone());
 
     // Wrap the state of the application and share it
     webData::new(AppState {
