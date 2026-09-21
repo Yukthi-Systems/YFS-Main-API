@@ -72,7 +72,7 @@ pub struct BasicUserInfo {
 #[derive(Serialize)]
 pub struct UserQuota {
     pub used_storage_bytes: i64,
-    pub used_file_count: i64,
+    pub used_file_count: i32,
 }
 
 
