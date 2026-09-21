@@ -1,4 +1,4 @@
-use crate::database::user::{get_user_by_id, search_user_by_email, update_user_session_fcm_token, update_user_public_info, update_user_private_info, calculate_used_bytes_by_email};
+use crate::database::user::{get_user_by_id, get_user_quota_by_email, get_user_quota_by_id, search_user_by_email, update_user_private_info, update_user_public_info, update_user_session_fcm_token, recalculate_user_quota};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, patch, web};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::models::user::SessionUser;
@@ -71,7 +71,31 @@ pub async fn update_user_info(request: HttpRequest, update_public_info: web::Pat
 #[get("/user/{user_email}/quota")]
 pub async fn get_total_used_bytes(user_email: web::Path<String>, state: web::Data<AppState>) -> ApiResponse {
     // Internal API call
-    let total_used_bytes = calculate_used_bytes_by_email(&state.pg_pool, &user_email).await?;
+    let total_used_bytes = get_user_quota_by_email(&state.pg_pool, &user_email).await?;
 
     Ok(HttpResponse::Ok().json(total_used_bytes))
+}
+
+
+#[get("/quota")]
+pub async fn get_my_quota(request: HttpRequest, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    let my_quota = get_user_quota_by_id(&state.pg_pool, &session_user.user_id).await?;
+
+    Ok(HttpResponse::Ok().json(my_quota))
+}
+
+
+#[patch("/quota/refresh")]
+pub async fn refresh_my_quota(request: HttpRequest, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    let my_quota = recalculate_user_quota(&state.pg_pool, &session_user.user_id).await?;
+
+    Ok(HttpResponse::Ok().json(my_quota))
 }

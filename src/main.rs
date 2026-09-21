@@ -77,6 +77,8 @@ async fn main() -> std::io::Result<()> {
                 .service(user::dropdown_search_user_by_email)
                 .service(user::get_user_info_by_id)
                 .service(user::update_user_info)
+                .service(user::refresh_my_quota)
+                .service(user::get_my_quota)
             )
             .service(
                 actix_scope("/folders")

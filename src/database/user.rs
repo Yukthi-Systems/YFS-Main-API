@@ -1,4 +1,4 @@
-use crate::models::user::{BasicUserInfo, SessionUser};
+use crate::models::user::{BasicUserInfo, SessionUser, UserQuota};
 use deadpool_postgres::Pool as PgPool;
 use crate::models::errors::AppError;
 use uuid::Uuid;
@@ -215,14 +215,14 @@ pub async fn update_user_private_info(db_pool: &PgPool, user_id: &Uuid, private_
 }
 
 
-pub async fn calculate_used_bytes_by_email(db_pool: &PgPool, user_email: &str) -> Result<i64, AppError> {
+pub async fn get_user_quota_by_email(db_pool: &PgPool, user_email: &str) -> Result<UserQuota, AppError> {
     let client = db_pool.get().await?;
 
     let row = client
         .query_one(
             r#"
-            SELECT COALESCE(SUM(file_size), 0)::BIGINT AS total_used_bytes
-            FROM file_versions
+            SELECT used_storage_bytes, used_file_count
+            FROM user_quotas
             WHERE user_id = (
                 SELECT user_id
                 FROM users
@@ -233,5 +233,61 @@ pub async fn calculate_used_bytes_by_email(db_pool: &PgPool, user_email: &str) -
         )
         .await?;
 
-    Ok(row.get("total_used_bytes"))
+    Ok(UserQuota::from(row))
+}
+
+
+pub async fn get_user_quota_by_id(db_pool: &PgPool, user_id: &Uuid) -> Result<UserQuota, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            SELECT used_storage_bytes, used_file_count
+            FROM user_quotas
+            WHERE user_id = $1
+            "#,
+            &[&user_id],
+        )
+        .await?;
+
+    Ok(UserQuota::from(row))
+}
+
+
+pub async fn recalculate_user_quota(db_pool: &PgPool, user_id: &Uuid) -> Result<UserQuota, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            INSERT INTO user_quotas (
+                user_id,
+                used_storage_bytes,
+                used_file_count
+            )
+            SELECT
+                u.user_id,
+                COALESCE(SUM(fv.file_size), 0)::BIGINT AS used_storage_bytes,
+                COUNT(fv.file_version)::INT AS used_file_count
+            FROM users u
+            LEFT JOIN files f
+                ON f.user_id = u.user_id
+            LEFT JOIN file_versions fv
+                ON fv.file_id = f.file_id
+            WHERE u.user_id = $1
+            GROUP BY u.user_id
+            ON CONFLICT (user_id) DO UPDATE
+            SET
+                used_storage_bytes = EXCLUDED.used_storage_bytes,
+                used_file_count = EXCLUDED.used_file_count
+            RETURNING
+                used_storage_bytes,
+                used_file_count
+            "#,
+            &[&user_id],
+        )
+        .await?;
+
+    Ok(UserQuota::from(row))
 }

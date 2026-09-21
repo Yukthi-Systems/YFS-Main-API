@@ -69,6 +69,13 @@ pub struct BasicUserInfo {
 }
 
 
+#[derive(Serialize)]
+pub struct UserQuota {
+    pub used_storage_bytes: i64,
+    pub used_file_count: i64,
+}
+
+
 // ------- Implementations ------- //
 
 
@@ -173,5 +180,15 @@ impl PublicSessionUser {
 
     pub fn cache_key(&self) -> String {
         format!("public:{}", self.access_token)
+    }
+}
+
+
+impl From<Row> for UserQuota {
+    fn from(row: Row) -> Self {
+        UserQuota {
+            used_storage_bytes: row.get("used_storage_bytes"),
+            used_file_count: row.get("used_file_count"),
+        }
     }
 }
