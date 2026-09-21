@@ -44,8 +44,7 @@ async fn main() -> std::io::Result<()> {
                 actix_scope("/internal/data")
                 .wrap(from_fn(middleware::auth::api_key_check))
                 .service(user::get_total_used_bytes)
-                // .service(files::callback_file_delete)
-                // .service(auth::delete_user_info)
+                // .service(user::server_total_used_bytes)
             )
             .service(
                 actix_scope("/public")
@@ -93,6 +92,7 @@ async fn main() -> std::io::Result<()> {
                 actix_scope("/files")
                 .wrap(from_fn(middleware::auth::auth_check))
                 .service(files::request_file_download)
+                .service(files::create_wopi_session)
                 .service(files::request_file_upload)
                 .service(files::get_file_basic_info)
                 .service(files::update_file_info)
@@ -114,6 +114,7 @@ async fn main() -> std::io::Result<()> {
             //     actix_scope("/share/public/files")
             //     .wrap(from_fn(middleware::auth::public_auth_check))
                     // .service(files::update_file_info)
+                    // .service(files::create_wopi_session)
             //      TODO: Most of the files endpoints to be copied under public access as well
             //     .service(files::file_operations)
             //     .service(files::get_file_info)

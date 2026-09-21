@@ -73,20 +73,6 @@ pub struct FileStorageAPI {
     pub max_operation_time: u16,
 }
 
-// TODO
-// #[derive(Serialize)]
-// pub struct FileStorageWopiAPI {
-//     pub file_name: String,
-//     pub file_location: String,
-//     pub server_host: String,
-//     pub file_id: Uuid,
-//     pub owner_id: Uuid,
-//     pub latest_file_version: i32,
-//     pub user_id: Uuid,
-//     pub user_name: String,
-//     pub can_write: bool,
-// }
-
 
 // ------- Implementations ------- //
 

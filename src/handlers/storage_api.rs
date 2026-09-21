@@ -1,4 +1,5 @@
 use crate::models::errors::AppError;
+use serde_json::Value as JsonValue;
 use reqwest::Client;
 use uuid::Uuid;
 
@@ -29,11 +30,7 @@ pub fn build_file_location(
 
 
 /// Request to generate an upload sessions for the storage server
-pub async fn generate_upload_sessions(
-    base_url: &str,
-    api_key: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, AppError> {
+pub async fn generate_upload_sessions<T: ToString>(base_url: &str, api_key: &str, body: &T) -> Result<JsonValue, AppError> {
     let client = Client::new();
     let url = format!("{}/sessions/upload", base_url);
     let response = client.post(&url)
@@ -44,7 +41,7 @@ pub async fn generate_upload_sessions(
         .await?;
 
     if response.status().is_success() {
-        let json_response = response.json::<serde_json::Value>().await?;
+        let json_response = response.json::<JsonValue>().await?;
         Ok(json_response)
     } else {
         let error_text = response.text().await?;
@@ -54,11 +51,7 @@ pub async fn generate_upload_sessions(
 
 
 /// Request to generate a download sessions for the storage server
-pub async fn generate_download_sessions(
-    base_url: &str,
-    api_key: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, AppError> {
+pub async fn generate_download_sessions<T: ToString>(base_url: &str, api_key: &str, body: &T) -> Result<JsonValue, AppError> {
     let client = Client::new();
     let url = format!("{}/sessions/download", base_url);
     let response = client.post(&url)
@@ -69,10 +62,31 @@ pub async fn generate_download_sessions(
         .await?;
 
     if response.status().is_success() {
-        let json_response = response.json::<serde_json::Value>().await?;
+        let json_response = response.json::<JsonValue>().await?;
         Ok(json_response)
     } else {
         let error_text = response.text().await?;
         Err(AppError::BadRequest(format!("Failed to generate download session: {}", error_text)))
+    }
+}
+
+
+/// Request to generate a WOPI session for the storage server
+pub async fn generate_wopi_session<T: ToString>(base_url: &str, api_key: &str, body: &T) -> Result<JsonValue, AppError> {
+    let client = Client::new();
+    let url = format!("{}/sessions/wopi", base_url);
+    let response = client.post(&url)
+        .header("X-API-Token", api_key)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let json_response = response.json::<JsonValue>().await?;
+        Ok(json_response)
+    } else {
+        let error_text = response.text().await?;
+        Err(AppError::BadRequest(format!("Failed to create WOPI session: {}", error_text)))
     }
 }

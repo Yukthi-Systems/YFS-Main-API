@@ -1,5 +1,5 @@
 use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
-use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions};
+use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, patch, post, put, web};
 use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType};
@@ -82,7 +82,6 @@ pub async fn single_file_operation(request: HttpRequest, operation_type: web::Pa
 
     Ok(HttpResponse::Ok().finish())
 }
-
 
 
 #[post("/upload")]
@@ -388,4 +387,71 @@ pub async fn get_file_basic_info(request: HttpRequest, file_request: web::Json<F
     file_request.validate_against_info(&operation_type, &file_access.file_info)?;
 
     Ok(HttpResponse::Ok().json(file_access.file_info))
+}
+
+
+#[post("/wopi/session/create/{to_write}")]
+pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>, file_request: web::Json<FileOpsRequest>, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    // TODO: Check the organization-level constraints for file operations (Taken from SSO API)
+    // Example: Encryption at rest, File size limits, Allowed file types, etc.
+    // Also SSO should only give the available servers list, so that Org level changes do not affect ongoing operations
+
+    // TODO: Check quota for upload, see if the user and the server has enough storage or not
+
+    let to_write = to_write.into_inner();
+    let operation_type_read = FileOpsType::Download;
+    let operation_type_write = if to_write { FileOpsType::Upload } else { FileOpsType::Download };
+
+    // Validate the file operation request for both read and write operations
+    // Since a WOPI session will involve both downloading and uploading the file
+    file_request.validate(&operation_type_read, session_user.is_file_versioning_enabled)?;
+    file_request.validate(&operation_type_write, session_user.is_file_versioning_enabled)?;
+
+    // File ID should be provided for download operations
+    let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step
+
+    // Check file access permissions for the requested file
+    let file_access = authorize_file_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &file_request.folder_id,
+        &file_id,
+        file_request.shared_folder_id,
+        file_request.shared_folder_id.map(|_| if to_write { SharedPermission::Update } else { SharedPermission::Download }),
+    ).await?;
+
+    // Validate the file operation against the current file information
+    file_request.validate_against_info(&operation_type_read, &file_access.file_info)?;
+
+    let file_location = get_file_location(&state.pg_pool, &file_request.folder_id, &file_id, file_request.file_version).await?;
+    if file_location.is_none() {
+        return Err(AppError::Gone("File location not found".into()));
+    }
+    let file_location = file_location.unwrap();
+    // host;/path/to/file
+    let host_url = file_location.split(';').next().unwrap().to_string();
+    let storage_path = file_location.split(';').nth(1).unwrap().to_string();
+
+    // Generate an upload session for the file with the storage server
+    let upload_session_response = generate_wopi_session(
+        &host_url,
+        &API_SETTINGS.file_store_api_key,
+        &serde_json::json!({
+            "file_name": file_request.file_name,
+            "file_location": storage_path,
+            "server_host": host_url,
+            "file_id": file_id,
+            "owner_id": file_access.owner_user_id,
+            "latest_file_version": file_access.file_info.available_versions.iter().max().cloned().unwrap_or(1),
+            "user_id": session_user.user_id,
+            "user_name": &session_user.email,
+            "can_write": true,
+        }),
+    ).await?;
+
+    Ok(HttpResponse::Ok().json(upload_session_response))
 }
