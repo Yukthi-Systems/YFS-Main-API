@@ -6,7 +6,6 @@ use uuid::Uuid;
 
 /// Builds the file location string for a given file info
 pub fn build_file_location(
-    server_host_url: &str,
     base_folder_path: &str,
     org_id: &Uuid,
     user_id: &Uuid,
@@ -15,10 +14,9 @@ pub fn build_file_location(
     file_version: i32,
 ) -> String {
     // Example Location
-    // "https://server-1.example.com;/data/yfs/org-id/user-id/folder-id/file-id.version-count"
+    // "/data/yfs/org-id/user-id/folder-id/file-id.version-count"
     format!(
-        "{};{}/{}/{}/{}/{}.{}",
-        server_host_url,
+        "{}/{}/{}/{}/{}.{}",
         base_folder_path,
         org_id,
         user_id,

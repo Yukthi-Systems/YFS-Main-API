@@ -1,8 +1,8 @@
 use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
 use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
+use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, patch, post, put, web};
-use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::state::{AppState, API_SETTINGS};
 use crate::models::user::SessionUser;
@@ -55,7 +55,7 @@ pub async fn single_file_operation(request: HttpRequest, operation_type: web::Pa
                     return Err(AppError::BadRequest("File location not found".into()));
                 }
                 let file_location = file_location.unwrap();
-                let file_storage_api_base_url = file_location.split(';').next().unwrap();
+                let file_storage_api_base_url = file_location.hosted_at;
 
                 // TODO: Delete the file using DB call (just that version)
 
@@ -70,7 +70,7 @@ pub async fn single_file_operation(request: HttpRequest, operation_type: web::Pa
                     return Err(AppError::BadRequest("File location not found".into()));
                 }
                 let file_location = file_location.unwrap();
-                let file_storage_api_base_url = file_location.split(';').next().unwrap();
+                let file_storage_api_base_url = file_location.hosted_at;
 
                 // Quota should be = new file size - existing file size
 
@@ -154,7 +154,6 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
 
     // Build the file location URL for the storage server
     let file_location = build_file_location(
-        &API_SETTINGS.file_store_host,
         BASE_FOLDER_PATH,
         &session_user.organization_id,
         &file_owner_id,
@@ -162,7 +161,13 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
         &file_id,
         file_request.file_version
     );
-    let file_storage_api = file_request.generate_api_struct(file_location.clone(), file_owner_id, file_id);
+
+    let file_location_struct = FileLocation {
+        file_location: file_location.clone(),
+        hosted_at: API_SETTINGS.file_store_host.clone(),
+    };
+
+    let file_storage_api = file_request.generate_api_struct(file_location_struct, file_owner_id, file_id);
 
     // Generate an upload session for the file with the storage server
     let upload_session_response = generate_upload_sessions(
@@ -198,6 +203,8 @@ pub async fn callback_file_upload(path: web::Path<bool>, file_request: web::Json
             &file_request.file_id,
             file_request.file_version,
             &file_request.file_location,
+            &file_request.owner_id,
+            &file_request.hosted_at,
             file_request.file_size,
             &file_request.metadata,
             &file_request.file_hash,
@@ -250,13 +257,13 @@ pub async fn request_file_download(request: HttpRequest, file_request: web::Json
         return Err(AppError::Gone("File location not found".into()));
     }
     let file_location = file_location.unwrap();
-    let host_url = file_location.split(';').next().unwrap().to_string();
+    let hosted_at = file_location.hosted_at.clone();
 
     let file_storage_api = file_request.generate_api_struct(file_location, file_access.owner_user_id, file_id);
 
     // Generate a download session for the file with the storage server
     let download_session_response = generate_download_sessions(
-        &host_url,
+        &hosted_at,
         &API_SETTINGS.file_store_api_key,
         &serde_json::json!([file_storage_api]),
     ).await?;
@@ -432,18 +439,15 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
         return Err(AppError::Gone("File location not found".into()));
     }
     let file_location = file_location.unwrap();
-    // host;/path/to/file
-    let host_url = file_location.split(';').next().unwrap().to_string();
-    let storage_path = file_location.split(';').nth(1).unwrap().to_string();
 
     // Generate an upload session for the file with the storage server
     let upload_session_response = generate_wopi_session(
-        &host_url,
+        &file_location.hosted_at,
         &API_SETTINGS.file_store_api_key,
         &serde_json::json!({
             "file_name": file_request.file_name,
-            "file_location": storage_path,
-            "server_host": host_url,
+            "file_location": file_location.file_location,
+            "server_host": file_location.hosted_at,
             "file_id": file_id,
             "owner_id": file_access.owner_user_id,
             "latest_file_version": file_access.file_info.available_versions.iter().max().cloned().unwrap_or(1),

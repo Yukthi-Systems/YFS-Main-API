@@ -39,7 +39,7 @@ pub struct FileOpsCallBack {
     pub file_id: Uuid,
     pub owner_id: Uuid,
     pub file_version: i32,
-
+    pub hosted_at: String,
     pub file_location: String,
     pub file_size: i64,
     pub metadata: serde_json::Value,
@@ -62,8 +62,16 @@ pub struct BasicFileInfo {
 
 
 #[derive(Serialize)]
+pub struct FileLocation {
+    pub file_location: String,
+    pub hosted_at: String,
+}
+
+
+#[derive(Serialize)]
 pub struct FileStorageAPI {
     pub file_location: String,
+    pub hosted_at: String,
     pub file_name: String,
     pub folder_id: Uuid,
     pub file_id: Uuid,
@@ -89,6 +97,16 @@ impl From<Row> for BasicFileInfo {
             available_versions: row.get("available_versions"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
+        }
+    }
+}
+
+
+impl From<Row> for FileLocation {
+    fn from(row: Row) -> Self {
+        FileLocation {
+            file_location: row.get("file_location"),
+            hosted_at: row.get("hosted_at"),
         }
     }
 }
@@ -219,9 +237,10 @@ impl FileOpsRequest {
             .clamp(7.0, u16::MAX as f64) as u16
     }
 
-    pub fn generate_api_struct(&self, file_location: String, owner_id: Uuid, file_id: Uuid) -> FileStorageAPI {
+    pub fn generate_api_struct(&self, file_location: FileLocation, owner_id: Uuid, file_id: Uuid) -> FileStorageAPI {
         FileStorageAPI {
-            file_location,
+            file_location: file_location.file_location,
+            hosted_at: file_location.hosted_at,
             file_name: self.file_name.clone(),
             file_id,
             owner_id,

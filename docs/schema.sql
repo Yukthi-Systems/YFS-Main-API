@@ -73,8 +73,12 @@ CREATE TABLE file_versions (
     file_id UUID NOT NULL REFERENCES files(file_id) ON DELETE CASCADE,
     file_version INTEGER NOT NULL,
 
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    hosted_at VARCHAR(255) NOT NULL REFERENCES storage_servers(server_address) ON DELETE CASCADE,
+
     file_location TEXT NOT NULL, -- Location of the file in the storage system (IP:port/org-id/user-id/file-id[:2]/file-id)
     file_size BIGINT NOT NULL, -- Size of the file in bytes
+
     metadata JSONB NOT NULL, -- For storing file metadata like type, tags, etc
     file_hash TEXT NOT NULL, -- Hash of the file for integrity verification
     -- TODO: Index on file_hash as required for the duplicate detection
@@ -133,6 +137,31 @@ CREATE TABLE external_shares (
 );
 
 
+-- User Quota
+CREATE TABLE user_quotas (
+    user_id UUID PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+
+    used_storage_bytes BIGINT NOT NULL DEFAULT 0, -- Storage currently used by the user
+    used_file_count INT NOT NULL DEFAULT 0 -- Number of files currently used by the user
+);
+
+
+-- Servers
+CREATE TABLE servers (
+    host_address VARCHAR(255) PRIMARY KEY,
+
+    -- Optional reference to the Organization ID
+    -- If present then this server is dedicated to that organization
+    -- else it is a general-purpose server
+    dedicated_to_organization_id UUID NULL,
+
+    server_name VARCHAR(255) NOT NULL,
+    server_description TEXT NOT NULL,
+
+    quota_allocated_bytes BIGINT NOT NULL,
+    quota_utilized_bytes BIGINT NOT NULL
+);
+
 
 -- Indexes for performance optimization
 CREATE INDEX idx_files_folder_id ON files(folder_id);
@@ -147,3 +176,5 @@ CREATE INDEX idx_file_versions_file ON file_versions(file_id);
 CREATE INDEX idx_external_expiry ON external_shares(expires_at);
 CREATE INDEX idx_deleted_files ON files(deleted_at);
 CREATE INDEX idx_deleted_folders ON folders(deleted_at);
+CREATE INDEX idx_files_expired_locks ON files (updated_at) WHERE is_locked = TRUE;
+CREATE INDEX idx_files_orphan_cleanup ON files (created_at, file_id);

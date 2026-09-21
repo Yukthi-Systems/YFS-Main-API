@@ -1,4 +1,4 @@
-use crate::models::files::BasicFileInfo;
+use crate::models::files::{BasicFileInfo, FileLocation};
 use deadpool_postgres::Pool as PgPool;
 use crate::models::errors::AppError;
 use uuid::Uuid;
@@ -47,13 +47,13 @@ pub async fn get_file_info_by_id(db_pool: &PgPool, folder_id: &Uuid, file_id: &U
 }
 
 
-pub async fn get_file_location(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uuid, file_version: i32) -> Result<Option<String>, AppError> {
+pub async fn get_file_location(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uuid, file_version: i32) -> Result<Option<FileLocation>, AppError> {
     let client = db_pool.get().await?;
 
     let row = client
         .query_opt(
             r#"
-            SELECT fv.file_location
+            SELECT fv.file_location, fv.hosted_at
             FROM file_versions fv
             INNER JOIN files f
                 ON f.file_id = fv.file_id
@@ -65,7 +65,7 @@ pub async fn get_file_location(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uui
         )
         .await?;
 
-    Ok(row.map(|r| r.get("file_location")))
+    Ok(row.map(FileLocation::from))
 }
 
 
@@ -116,6 +116,8 @@ pub async fn add_or_update_file_version(
     file_id: &Uuid,
     file_version: i32,
     file_location: &str,
+    owner_id: &Uuid,
+    hosted_at: &str,
     file_size: i64,
     metadata: &serde_json::Value,
     file_hash: &str
@@ -127,12 +129,14 @@ pub async fn add_or_update_file_version(
         INSERT INTO file_versions (
             file_id,
             file_version,
+            user_id,
+            hosted_at,
             file_location,
             file_size,
             metadata,
             file_hash
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (file_id, file_version) DO UPDATE
         SET file_location = EXCLUDED.file_location,
             file_size = EXCLUDED.file_size,
@@ -143,6 +147,8 @@ pub async fn add_or_update_file_version(
         &[
             &file_id,
             &file_version,
+            &owner_id,
+            &hosted_at,
             &file_location,
             &file_size,
             metadata,

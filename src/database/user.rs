@@ -221,13 +221,13 @@ pub async fn calculate_used_bytes_by_email(db_pool: &PgPool, user_email: &str) -
     let row = client
         .query_one(
             r#"
-            SELECT COALESCE(SUM(fv.file_size), 0)::BIGINT AS total_used_bytes
-            FROM users u
-            LEFT JOIN files f
-                ON f.user_id = u.user_id
-            LEFT JOIN file_versions fv
-                ON fv.file_id = f.file_id
-            WHERE u.email = $1
+            SELECT COALESCE(SUM(file_size), 0)::BIGINT AS total_used_bytes
+            FROM file_versions
+            WHERE user_id = (
+                SELECT user_id
+                FROM users
+                WHERE email = $1
+            )
             "#,
             &[&user_email],
         )
