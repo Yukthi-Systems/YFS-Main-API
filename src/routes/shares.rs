@@ -21,6 +21,7 @@ use crate::models::shares::{CreateExternalShareRequest, InternalShareRequest, Up
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, patch, post, put, web};
 use crate::models::folders::{EditFolderRequest, MoveFolderRequest, NewFolderRequest};
 use crate::models::user::{SessionUser, PublicSessionUser};
+use crate::handlers::deletion::delete_folder_and_contents;
 use crate::handlers::access::authorize_folder_access;
 use crate::models::errors::{ApiResponse, AppError};
 use crate::handlers::auth::generate_password_hash;
@@ -391,6 +392,40 @@ pub async fn edit_public_folder(request: HttpRequest, body: web::Json<EditFolder
     }
     
     edit_folder_info(&state.pg_pool, &session_user.created_by, &body.folder_id, &body.folder_name, &body.folder_info).await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+
+#[patch("/delete/{folder_id}")]
+pub async fn delete_public_folder(request: HttpRequest, path: web::Path<Uuid>, state: web::Data<AppState>) -> ApiResponse {
+    // Get PublicSessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<PublicSessionUser>().unwrap();
+    let folder_id = path.into_inner();
+
+    // Check if the public session can update folders
+    if !session_user.permission_set.can_delete {
+        return Err(AppError::BadRequest("Public session does not have permission to delete folders".into()));
+    }
+
+    // This will work only if the public session is of type shared folder access
+    if !session_user.share_folder_target_id.is_some() {
+        return Err(AppError::BadRequest("Public session is not of type shared folder access".into()));
+    }
+
+    // Check if the shared folder is under the specified shared folder
+    if !is_folder_under_parent(&state.pg_pool, &folder_id, &session_user.share_folder_target_id.unwrap()).await? {
+        return Err(AppError::BadRequest("The parent folder is not under the specified shared folder".into()));
+    }
+
+    // Can not delete the root shared folder
+    if folder_id == session_user.share_folder_target_id.unwrap() {
+        return Err(AppError::BadRequest("Cannot delete the root shared folder".into()));
+    }
+
+    // Spawn a background task to delete the folder and its contents asynchronously
+    tokio::spawn(delete_folder_and_contents(state.pg_pool.clone(), session_user.created_by, folder_id));
 
     Ok(HttpResponse::Ok().finish())
 }

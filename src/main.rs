@@ -107,10 +107,10 @@ async fn main() -> std::io::Result<()> {
                 actix_scope("/share/public/folders")
                 .wrap(from_fn(middleware::auth::public_auth_check))
                 .service(shares::list_folders_and_files_under_public)
+                .service(shares::delete_public_folder)
                 .service(shares::create_public_folder)
                 .service(shares::edit_public_folder)
                 .service(shares::move_public_folder)
-                // .service(folders::delete_folder_with_files)
             )
             // .service(
             //     actix_scope("/share/public/files")
