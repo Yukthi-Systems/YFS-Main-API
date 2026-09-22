@@ -99,7 +99,7 @@ async fn main() -> std::io::Result<()> {
                 .service(files::create_wopi_session)
                 .service(files::request_file_upload)
                 .service(files::get_file_basic_info)
-                // .service(files::delete_full_file)
+                .service(files::delete_full_file)
                 .service(files::update_file_info)
                 .service(files::move_file)
                 // .service(files::copy_file_by_version)    // copy - copy only specific file version to a folder
