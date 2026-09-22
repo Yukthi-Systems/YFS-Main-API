@@ -465,6 +465,7 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
             "server_host": file_location.hosted_at,
             "file_id": file_id,
             "owner_id": file_access.owner_user_id,
+            "is_file_versioning_enabled": session_user.is_file_versioning_enabled,
             "latest_file_version": file_access.file_info.available_versions.iter().max().cloned().unwrap_or(1),
             "user_id": session_user.user_id,
             "user_name": &session_user.email,
