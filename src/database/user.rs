@@ -1,4 +1,4 @@
-use crate::models::user::{BasicUserInfo, SessionUser, UserQuota};
+use crate::models::user::{BasicUserInfo, SessionUser, UserQuota, ServerInfo};
 use deadpool_postgres::Pool as PgPool;
 use crate::models::errors::AppError;
 use uuid::Uuid;
@@ -290,4 +290,59 @@ pub async fn recalculate_user_quota(db_pool: &PgPool, user_id: &Uuid) -> Result<
         .await?;
 
     Ok(UserQuota::from(row))
+}
+
+
+pub async fn update_quota(db_pool: &PgPool, user_id: &Uuid, server_host_address: &str, add_quota_bytes: i64, add_file_count: i32) -> Result<(), AppError> {
+    let client = db_pool.get().await?;
+
+    // Update the user's quota in the user_quotas table
+    client
+        .execute(
+            r#"
+            UPDATE user_quotas
+            SET used_storage_bytes = used_storage_bytes + $1,
+                used_file_count = used_file_count + $2
+            WHERE user_id = $3
+            "#,
+            &[&add_quota_bytes, &add_file_count, user_id],
+        )
+        .await?;
+
+    // Update the server quota in 
+    client
+        .execute(
+            r#"
+            UPDATE servers
+            SET quota_utilized_bytes = quota_utilized_bytes + $1
+            WHERE host_address = $2
+            "#,
+            &[&add_quota_bytes, &server_host_address],
+        )
+        .await?;
+
+    Ok(())
+}
+
+
+pub async fn get_all_servers_info(db_pool: &PgPool) -> Result<Vec<ServerInfo>, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                host_address,
+                dedicated_to_organization_id,
+                server_name,
+                server_description,
+                quota_allocated_bytes,
+                quota_utilized_bytes
+            FROM servers
+            "#,
+            &[],
+        )
+        .await?;
+
+    Ok(ServerInfo::from_rows(rows))
 }

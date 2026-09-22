@@ -112,6 +112,13 @@ impl From<Row> for FileLocation {
 }
 
 
+impl FileLocation {
+    pub fn from_rows(rows: Vec<Row>) -> Vec<Self> {
+        rows.into_iter().map(Self::from).collect()
+    }
+}
+
+
 impl FileOpsType {
     fn is_upload(&self) -> bool {
         matches!(self, FileOpsType::Upload)
@@ -191,6 +198,12 @@ impl FileOpsRequest {
         if (operation_type.is_download()) && self.file_id.is_none() {
             return Err(AppError::BadRequest("File ID must be provided for download operations".into()));
         }
+
+        // If it is delete the file ID must be provided
+        if (operation_type.is_delete()) && self.file_id.is_none() {
+            return Err(AppError::BadRequest("File ID must be provided for delete operations".into()));
+        }
+
         Ok(())
     }
 

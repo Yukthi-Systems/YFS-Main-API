@@ -1,4 +1,4 @@
-use crate::database::user::{get_user_by_id, get_user_quota_by_email, get_user_quota_by_id, search_user_by_email, update_user_private_info, update_user_public_info, update_user_session_fcm_token, recalculate_user_quota};
+use crate::database::user::{get_user_by_id, get_user_quota_by_email, get_user_quota_by_id, search_user_by_email, update_user_private_info, update_user_public_info, update_user_session_fcm_token, recalculate_user_quota, get_all_servers_info};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, patch, web};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::models::user::SessionUser;
@@ -98,4 +98,13 @@ pub async fn refresh_my_quota(request: HttpRequest, state: web::Data<AppState>) 
     let my_quota = recalculate_user_quota(&state.pg_pool, &session_user.user_id).await?;
 
     Ok(HttpResponse::Ok().json(my_quota))
+}
+
+
+#[get("/servers")]
+pub async fn get_all_servers(state: web::Data<AppState>) -> ApiResponse {
+    // Internal API call
+    let all_servers_info = get_all_servers_info(&state.pg_pool).await?;
+
+    Ok(HttpResponse::Ok().json(all_servers_info))
 }

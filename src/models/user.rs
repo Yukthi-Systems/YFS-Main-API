@@ -76,6 +76,17 @@ pub struct UserQuota {
 }
 
 
+#[derive(Serialize)]
+pub struct ServerInfo {
+    pub host_address: String,
+    pub dedicated_to_organization_id: Option<Uuid>,
+    pub server_name: String,
+    pub server_description: String,
+    pub quota_allocated_bytes: i64,
+    pub quota_utilized_bytes: i64,
+}
+
+
 // ------- Implementations ------- //
 
 
@@ -99,6 +110,27 @@ impl From<Row> for SessionUser {
             quota_allocated: row.get("quota_allocated"),
             quota_utilized: row.get("quota_utilized"),
         }
+    }
+}
+
+
+impl From<Row> for ServerInfo {
+    fn from(row: Row) -> Self {
+        ServerInfo {
+            host_address: row.get("host_address"),
+            dedicated_to_organization_id: row.get("dedicated_to_organization_id"),
+            server_name: row.get("server_name"),
+            server_description: row.get("server_description"),
+            quota_allocated_bytes: row.get("quota_allocated_bytes"),
+            quota_utilized_bytes: row.get("quota_utilized_bytes"),
+        }
+    }
+}
+
+
+impl ServerInfo {
+    pub fn from_rows(rows: Vec<Row>) -> Vec<Self> {
+        rows.into_iter().map(Self::from).collect()
     }
 }
 

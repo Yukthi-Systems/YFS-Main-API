@@ -88,3 +88,23 @@ pub async fn generate_wopi_session<T: ToString>(base_url: &str, api_key: &str, b
         Err(AppError::BadRequest(format!("Failed to create WOPI session: {}", error_text)))
     }
 }
+
+
+/// Delete multiple file/folder paths from the storage server
+pub async fn delete_paths_from_server<T: ToString>(base_url: &str, api_key: &str, body: &T) -> Result<(), AppError> {
+    let client = Client::new();
+    let url = format!("{}/files/delete", base_url);
+    let response = client.post(&url)
+        .header("X-API-Token", api_key)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        let error_text = response.text().await?;
+        Err(AppError::BadRequest(format!("Failed to delete paths: {}", error_text)))
+    }
+}

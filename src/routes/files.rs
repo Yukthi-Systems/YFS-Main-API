@@ -1,11 +1,13 @@
-use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
-use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
+use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, delete_file_version, get_all_file_locations, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
+use crate::database::user::update_quota;
+use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session, delete_paths_from_server};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
 use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
-use actix_web::{HttpMessage, HttpRequest, HttpResponse, patch, post, put, web};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, patch, post, put, web};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::state::{AppState, API_SETTINGS};
 use crate::models::user::SessionUser;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 
@@ -209,6 +211,19 @@ pub async fn callback_file_upload(path: web::Path<bool>, file_request: web::Json
             &file_request.metadata,
             &file_request.file_hash,
         ).await?;
+
+        // TODO: Handle if its a replacement of an existing file version
+        // - If it is replacing an existing file version, we might need to adjust the quota accordingly
+
+        // Update the quota after adding the file version
+        update_quota(
+            &state.pg_pool,
+            &file_request.owner_id,
+            &file_request.hosted_at,
+            file_request.file_size,
+            1
+        ).await?;
+
     } else {
         // If the upload failed and it's the first version, delete the file entry
         if file_request.file_version == 1 {
@@ -458,4 +473,139 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
     ).await?;
 
     Ok(HttpResponse::Ok().json(upload_session_response))
+}
+
+
+#[delete("/delete/version")]
+pub async fn delete_any_file_version(request: HttpRequest, file_request: web::Json<FileOpsRequest>, state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    // File version should be greater than 1
+    if file_request.file_version <= 1 {
+        return Err(AppError::BadRequest("File version must be greater than 1 for deletion".into()));
+    }
+
+    let operation_type = FileOpsType::Delete;
+
+    // Validate the file operation request
+    file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
+
+    // File ID should be provided for delete operations
+    let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step
+
+    // Check file access permissions for the requested file
+    let file_access = authorize_file_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &file_request.folder_id,
+        &file_id,
+        file_request.shared_folder_id,
+        file_request.shared_folder_id.map(|_| SharedPermission::Download),
+    ).await?;
+
+    // Validate the file operation against the current file information
+    file_request.validate_against_info(&operation_type, &file_access.file_info)?;
+
+    let file_location = get_file_location(&state.pg_pool, &file_request.folder_id, &file_id, file_request.file_version).await?;
+    if file_location.is_none() {
+        return Err(AppError::Gone("File location not found".into()));
+    }
+    let file_location = file_location.unwrap();
+
+    delete_paths_from_server(
+        &file_location.hosted_at,
+        &API_SETTINGS.file_store_api_key,
+        &serde_json::json!([&file_location.file_location]),
+    ).await?;
+
+    // Remove the version entry from the database
+    let file_size = delete_file_version(
+        &state.pg_pool,
+        &file_id,
+        file_request.file_version,
+    ).await?;
+
+    // Update the Quota
+    update_quota(
+        &state.pg_pool,
+        &file_access.owner_user_id,
+        &file_location.hosted_at,
+        -file_size,
+        -1
+    ).await?;
+
+    Ok(HttpResponse::NoContent().finish())
+}
+
+
+#[delete("/delete/file")]
+pub async fn delete_full_file(request: HttpRequest, file_request: web::Json<FileOpsRequest>, state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    let operation_type = FileOpsType::Delete;
+
+    // Validate the file operation request
+    file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
+
+    // File ID should be provided for delete operations
+    let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step
+
+    // Check file access permissions for the requested file
+    let file_access = authorize_file_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &file_request.folder_id,
+        &file_id,
+        file_request.shared_folder_id,
+        file_request.shared_folder_id.map(|_| SharedPermission::Download),
+    ).await?;
+
+    // Validate the file operation against the current file information
+    file_request.validate_against_info(&operation_type, &file_access.file_info)?;
+
+    let all_file_locations = get_all_file_locations(&state.pg_pool, &file_request.folder_id, &file_id).await?;
+    if all_file_locations.is_empty() {
+        return Err(AppError::Gone("No file locations found".into()));
+    }
+    
+    // do it like this file host as key and value as list of file locations
+    let mut file_locations_map: HashMap<String, Vec<String>> = HashMap::new();
+    for loc in &all_file_locations {
+        file_locations_map.entry(loc.hosted_at.clone())
+            .or_insert_with(Vec::new)
+            .push(loc.file_location.clone());
+    }
+
+    // Loop through the file locations map and delete all of them together
+    for (hosted_at, file_paths) in &file_locations_map {
+        // Delete the file paths from the server
+        delete_paths_from_server(
+            hosted_at,
+            &API_SETTINGS.file_store_api_key,
+            &serde_json::json!(file_paths),
+        ).await?;
+
+        // Delete the file versions from the server as well
+        let (total_size, total_versions) = delete_file(
+            &state.pg_pool,
+            &file_request.folder_id,
+            &file_access.owner_user_id,
+            &file_id,
+        ).await?;
+
+        // Update the quota based on the deleted file versions
+        update_quota(
+            &state.pg_pool,
+            &file_access.owner_user_id,
+            &hosted_at,
+            -total_size,
+            -total_versions
+        ).await?;
+    }
+
+    Ok(HttpResponse::NoContent().finish())
 }

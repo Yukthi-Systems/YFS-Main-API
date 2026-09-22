@@ -161,19 +161,43 @@ pub async fn add_or_update_file_version(
 }
 
 
-pub async fn delete_file(db_pool: &PgPool, folder_id: &Uuid, user_id: &Uuid, file_id: &Uuid) -> Result<(), AppError> {
+pub async fn delete_file(db_pool: &PgPool, folder_id: &Uuid, user_id: &Uuid, file_id: &Uuid) -> Result<(i64, i32), AppError> {
     let client = db_pool.get().await?;
 
-    client.execute(
-        r#"
-        DELETE FROM files
-        WHERE file_id = $1 AND folder_id = $2 AND user_id = $3
-        "#,
-        &[file_id, folder_id, user_id],
-    )
-    .await?;
+    let row = client
+        .query_one(
+            r#"
+            WITH file_stats AS (
+                SELECT
+                    COALESCE(SUM(fv.file_size), 0)::BIGINT AS total_size,
+                    COUNT(fv.file_id)::INT AS total_versions
+                FROM files f
+                LEFT JOIN file_versions fv
+                    ON fv.file_id = f.file_id
+                WHERE f.file_id = $1
+                  AND f.folder_id = $2
+                  AND f.user_id = $3
+            ),
+            deleted AS (
+                DELETE FROM files
+                WHERE file_id = $1
+                  AND folder_id = $2
+                  AND user_id = $3
+                RETURNING file_id
+            )
+            SELECT
+                file_stats.total_size,
+                file_stats.total_versions
+            FROM file_stats
+            WHERE EXISTS (
+                SELECT 1 FROM deleted
+            )
+            "#,
+            &[file_id, folder_id, user_id],
+        )
+        .await?;
 
-    Ok(())
+    Ok((row.get("total_size"), row.get("total_versions")))
 }
 
 
@@ -237,7 +261,7 @@ pub async fn remove_all_expired_file_locks(db_pool: &PgPool) -> Result<(), AppEr
         UPDATE files
         SET is_locked = FALSE,
             updated_at = CURRENT_TIMESTAMP
-        WHERE is_locked = TRUE AND updated_at < NOW() - INTERVAL '65536 seconds'
+        WHERE is_locked = TRUE AND updated_at < NOW() - INTERVAL '5400 seconds'
         "#,
         &[],
     )
@@ -271,4 +295,51 @@ pub async fn delete_all_orphaned_files(db_pool: &PgPool) -> Result<(), AppError>
     log::info!("Orphaned files deleted successfully");
 
     Ok(())
+}
+
+
+pub async fn delete_file_version(db_pool: &PgPool, file_id: &Uuid, file_version: i32) -> Result<i64, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            WITH deleted AS (
+                DELETE FROM file_versions
+                WHERE file_id = $1
+                  AND file_version = $2
+                RETURNING file_id, file_size
+            )
+            UPDATE files
+            SET updated_at = CURRENT_TIMESTAMP
+            FROM deleted
+            WHERE files.file_id = deleted.file_id
+            RETURNING deleted.file_size
+            "#,
+            &[file_id, &file_version],
+        )
+        .await?;
+
+    Ok(row.get("file_size"))
+}
+
+
+pub async fn get_all_file_locations(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uuid) -> Result<Vec<FileLocation>, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT fv.file_location, fv.hosted_at
+            FROM file_versions fv
+            INNER JOIN files f
+                ON f.file_id = fv.file_id
+            WHERE f.folder_id = $1
+            AND fv.file_id = $2
+            "#,
+            &[folder_id, file_id],
+        )
+        .await?;
+
+    Ok(FileLocation::from_rows(rows))
 }

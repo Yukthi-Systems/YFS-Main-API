@@ -43,14 +43,15 @@ async fn main() -> std::io::Result<()> {
             .service(
                 actix_scope("/internal/data")
                 .wrap(from_fn(middleware::auth::api_key_check))
+                // TODO: Use it in Phoenix Admin Panel or for internal monitoring
                 .service(user::get_total_used_bytes)
-                // .service(user::server_total_used_bytes)
+                .service(user::get_all_servers)
             )
             .service(
                 actix_scope("/public")
                 .service(auth::public_session_validate_password)
-                // .service(auth::public_session_validate_otp)
                 // .service(auth::public_session_generate_otp)
+                // .service(auth::public_session_validate_otp)
                 .service(auth::create_public_session)
                 .service(
                     actix_scope("")
@@ -93,15 +94,15 @@ async fn main() -> std::io::Result<()> {
             .service(
                 actix_scope("/files")
                 .wrap(from_fn(middleware::auth::auth_check))
+                .service(files::delete_any_file_version)
                 .service(files::request_file_download)
                 .service(files::create_wopi_session)
                 .service(files::request_file_upload)
                 .service(files::get_file_basic_info)
+                // .service(files::delete_full_file)
                 .service(files::update_file_info)
                 .service(files::move_file)
                 // .service(files::copy_file_by_version)    // copy - copy only specific file version to a folder
-                // .service(files::delete_file_version)        // Delete file Version from GO API
-                // .service(files::delete_file)        // Delete file from GO API
             )
             .service(
                 actix_scope("/share/public/folders")
