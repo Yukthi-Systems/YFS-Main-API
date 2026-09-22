@@ -330,41 +330,37 @@ pub async fn delete_file_versions(db_pool: &PgPool, file_id: &Uuid, file_version
     let row = client
         .query_one(
             r#"
-            WITH deleted AS (
+            WITH existing AS (
+                SELECT COUNT(*)::INT AS total_count
+                FROM file_versions
+                WHERE file_id = $1
+            ),
+            deleted AS (
                 DELETE FROM file_versions
                 WHERE file_id = $1
                   AND file_version = ANY($2)
                 RETURNING file_id, file_size
             ),
-            stats AS (
-                SELECT
-                    COALESCE(SUM(file_size), 0)::BIGINT AS total_deleted_size,
-                    COUNT(*)::INT AS total_deleted_count
-                FROM deleted
-            ),
-            remaining AS (
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM file_versions
-                    WHERE file_id = $1
-                ) AS has_remaining
-            ),
             deleted_file AS (
                 DELETE FROM files
                 WHERE file_id = $1
-                  AND NOT (SELECT has_remaining FROM remaining)
-            ),
-            updated_file AS (
-                UPDATE files
-                SET updated_at = CURRENT_TIMESTAMP
-                WHERE file_id = $1
-                  AND (SELECT has_remaining FROM remaining)
+                  AND EXISTS (
+                      SELECT 1
+                      FROM deleted
+                  )
+                  AND (
+                      SELECT total_count
+                      FROM existing
+                  ) = (
+                      SELECT COUNT(*)::INT
+                      FROM deleted
+                  )
                 RETURNING file_id
             )
             SELECT
-                total_deleted_size,
-                total_deleted_count
-            FROM stats
+                COALESCE(SUM(file_size), 0)::BIGINT AS total_deleted_size,
+                COUNT(*)::INT AS total_deleted_count
+            FROM deleted
             "#,
             &[file_id, &file_versions],
         )
