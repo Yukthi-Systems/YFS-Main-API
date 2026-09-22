@@ -178,3 +178,4 @@ CREATE INDEX idx_deleted_files ON files(deleted_at);
 CREATE INDEX idx_deleted_folders ON folders(deleted_at);
 CREATE INDEX idx_files_expired_locks ON files (updated_at) WHERE is_locked = TRUE;
 CREATE INDEX idx_files_orphan_cleanup ON files (created_at, file_id);
+CREATE INDEX CONCURRENTLY idx_folders_parent_folder_id ON folders(parent_folder_id);

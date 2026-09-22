@@ -1,3 +1,4 @@
+use crate::database::folders::{mark_folders_and_files_as_deleted, get_files_in_folder, get_subfolders_in_folder, delete_folder_if_empty};
 use crate::database::files::{get_file_version_details, delete_file_versions};
 use crate::models::files::FileVersionInfo;
 use super::storage_api::delete_paths_from_server;
@@ -10,8 +11,37 @@ use uuid::Uuid;
 
 
 
-pub async fn delete_folder_and_contents(db_pool: &PgPool, owner_id: Uuid, folder_id: Uuid) -> Result<(), AppError> {
-    // Given a folder ID - delete the folder and all its contents recursively, update the quota accordingly
+async fn delete_folder_contents_recursively(db_pool: &PgPool, owner_id: Uuid, folder_id: Uuid) -> Result<(), AppError> {
+    // If there is nothing left in the folder, then delete the folder itself
+    let is_empty = delete_folder_if_empty(&db_pool, &folder_id).await?;
+    if is_empty {
+        return Ok(());
+    }
+
+    let first_level_files = get_files_in_folder(&db_pool, &folder_id).await?;
+    let first_level_subfolders = get_subfolders_in_folder(&db_pool, &folder_id).await?;
+
+    // Delete all files in the current folder
+    for file_id in first_level_files {
+        delete_file_and_versions(&db_pool, owner_id, file_id).await?;
+    }
+
+    // Recursively delete all subfolders
+    for subfolder_id in first_level_subfolders {
+        Box::pin(delete_folder_contents_recursively(db_pool, owner_id, subfolder_id)).await?;
+    }
+
+    Ok(())
+}
+
+
+pub async fn delete_folder_and_contents(db_pool: PgPool, owner_id: Uuid, folder_id: Uuid) -> Result<(), AppError> {
+    // First Mark the folder as deleted in the database (soft delete)
+    mark_folders_and_files_as_deleted(&db_pool, &[folder_id]).await?;
+
+    // Loop through all files and subfolders within the folder and delete them recursively
+    delete_folder_contents_recursively(&db_pool, owner_id, folder_id).await?;
+
     Ok(())
 }
 
@@ -64,7 +94,7 @@ pub async fn delete_file_and_versions(db_pool: &PgPool, owner_id: Uuid, file_id:
 }
 
 
-pub async fn delete_file_version(db_pool: PgPool, owner_id: Uuid, file_id: Uuid, version: i32) -> Result<(), AppError> {
+pub async fn delete_file_version(db_pool: &PgPool, owner_id: Uuid, file_id: Uuid, version: i32) -> Result<(), AppError> {
     // Get the file version details for the given file ID and owner ID
     let file_info = get_file_version_details(&db_pool, &owner_id, &file_id).await?;
     if file_info.is_empty() {

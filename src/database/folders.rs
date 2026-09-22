@@ -39,6 +39,7 @@ pub async fn get_folders_and_files(db_pool: &PgPool, user_id: &Uuid, parent_fold
             FROM folders f
             WHERE f.user_id = $1
               AND f.parent_folder_id = $2
+              AND f.deleted_at IS NULL
 
             UNION ALL
 
@@ -65,6 +66,7 @@ pub async fn get_folders_and_files(db_pool: &PgPool, user_id: &Uuid, parent_fold
             FROM files fi
             WHERE fi.user_id = $1
               AND fi.folder_id = $2
+              AND fi.deleted_at IS NULL
 
             ORDER BY updated_at DESC
             LIMIT $3
@@ -116,6 +118,7 @@ pub async fn get_root_folders(db_pool: &PgPool, user_id: &Uuid, limit: i64, offs
             FROM folders f
             WHERE f.user_id = $1
               AND f.parent_folder_id IS NULL
+              AND f.deleted_at IS NULL
             ORDER BY updated_at DESC
             LIMIT $2
             OFFSET $3
@@ -163,6 +166,7 @@ pub async fn edit_folder_info(db_pool: &PgPool, user_id: &Uuid, folder_id: &Uuid
                 updated_at = CURRENT_TIMESTAMP
             WHERE folder_id = $3
               AND user_id = $4
+              AND deleted_at IS NULL
             "#,
         &[
             &folder_name,
@@ -188,6 +192,7 @@ pub async fn move_folder_under(db_pool: &PgPool, user_id: &Uuid, folder_id: &Uui
                 updated_at = CURRENT_TIMESTAMP
             WHERE folder_id = $2
               AND user_id = $3
+              AND deleted_at IS NULL
             "#,
         &[
             &new_parent_folder_id,
@@ -240,6 +245,7 @@ pub async fn list_internal_sharing_in_folders(db_pool: &PgPool, user_id: &Uuid, 
             FROM internal_shares s
             INNER JOIN folders f
                 ON f.folder_id = s.folder_id
+               AND f.deleted_at IS NULL
 
             WHERE s.shared_with_user_id = $1
               AND f.deleted_at IS NULL
@@ -308,6 +314,7 @@ pub async fn list_internal_sharing_out_folders(db_pool: &PgPool, user_id: &Uuid,
                 FROM internal_shares s
                 WHERE s.folder_id = f.folder_id
                   AND s.created_by = $1
+                  AND f.deleted_at IS NULL
                 ORDER BY s.created_at DESC
                 LIMIT 1
             ) s ON TRUE
@@ -381,6 +388,122 @@ pub async fn is_folder_belongs_to_user(db_pool: &PgPool, folder_id: &Uuid, user_
             LIMIT 1
             "#,
             &[folder_id, user_id],
+        )
+        .await?;
+
+    Ok(row.is_some())
+}
+
+
+pub async fn mark_folders_and_files_as_deleted(db_pool: &PgPool, folder_ids: &[Uuid]) -> Result<(), AppError> {
+    if folder_ids.is_empty() {
+        return Ok(());
+    }
+
+    let client = db_pool.get().await?;
+
+    client
+        .execute(
+            r#"
+            WITH RECURSIVE folder_tree AS (
+                SELECT folder_id
+                FROM folders
+                WHERE folder_id = ANY($1)
+
+                UNION
+
+                SELECT f.folder_id
+                FROM folders f
+                INNER JOIN folder_tree ft
+                    ON f.parent_folder_id = ft.folder_id
+            ),
+            deleted_folders AS (
+                UPDATE folders
+                SET deleted_at = NOW(),
+                    updated_at = NOW()
+                WHERE folder_id IN (
+                    SELECT folder_id
+                    FROM folder_tree
+                )
+                RETURNING folder_id
+            )
+            UPDATE files
+            SET deleted_at = NOW(),
+                updated_at = NOW()
+            WHERE folder_id IN (
+                SELECT folder_id
+                FROM folder_tree
+            )
+            "#,
+            &[&folder_ids],
+        )
+        .await?;
+
+    Ok(())
+}
+
+
+pub async fn get_files_in_folder(db_pool: &PgPool, folder_id: &Uuid) -> Result<Vec<Uuid>, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT file_id
+            FROM files
+            WHERE folder_id = $1
+            "#,
+            &[folder_id],
+        )
+        .await?;
+
+    let file_ids: Vec<Uuid> = rows.iter().map(|row| row.get("file_id")).collect();
+
+    Ok(file_ids)
+}
+
+
+pub async fn get_subfolders_in_folder(db_pool: &PgPool, folder_id: &Uuid) -> Result<Vec<Uuid>, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT folder_id
+            FROM folders
+            WHERE parent_folder_id = $1
+            "#,
+            &[folder_id],
+        )
+        .await?;
+
+    let folder_ids: Vec<Uuid> = rows.iter().map(|row| row.get("folder_id")).collect();
+
+    Ok(folder_ids)
+}
+
+
+pub async fn delete_folder_if_empty(db_pool: &PgPool, folder_id: &Uuid) -> Result<bool, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_opt(
+            r#"
+            DELETE FROM folders
+            WHERE folder_id = $1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM files
+                  WHERE folder_id = $1
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM folders
+                  WHERE parent_folder_id = $1
+              )
+            RETURNING folder_id
+            "#,
+            &[folder_id],
         )
         .await?;
 

@@ -1,89 +1,17 @@
-use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
-use crate::database::user::update_quota;
-use crate::handlers::deletion::{delete_file_and_versions, delete_file_version};
+use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
 use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
-use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, patch, post, put, web};
+use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
+use crate::handlers::deletion::{delete_file_and_versions, delete_file_version};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::state::{AppState, API_SETTINGS};
+use crate::database::user::update_quota;
 use crate::models::user::SessionUser;
 use uuid::Uuid;
 
 
 const BASE_FOLDER_PATH: &str = "/data/yfs";
-
-
-#[post("/operation/{operation_type}")]
-pub async fn single_file_operation(request: HttpRequest, operation_type: web::Path<FileOpsType>, file_request: web::Json<FileOpsRequest>, state: web::Data<AppState>) -> ApiResponse {
-    // Get SessionUser from request extensions
-    let ext = request.extensions();
-    let session_user = ext.get::<SessionUser>().unwrap();
-
-
-    // TODO: Check the organization-level constraints for file operations (Taken from SSO API)
-    // Example: Encryption at rest, File size limits, Allowed file types, etc.
-    // Also SSO should only give the available servers list, so that Org level changes do not affect ongoing operations
-
-    // TODO: Check if the folder is accessible by the user
-    // TODO: Check if its a shared folder, then try to do the same
-
-    let operation_type = operation_type.into_inner();
-
-    // Validate the file operation request
-    file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
-
-    let file_id = file_request.file_id.unwrap_or(Uuid::new_v4());
-
-    // If file_id is there
-    if file_request.file_id.is_some() {
-        // Get the file information from the database
-        let file_info = get_file_info_by_id(&state.pg_pool, &file_request.folder_id, &file_id).await?;
-        if file_info.is_none() {
-            return Err(AppError::BadRequest("File not found".into()));
-        }
-        let file_info = file_info.unwrap();
-
-        // Validate the file operation against the current file information
-        file_request.validate_against_info(&operation_type, &file_info)?;
-
-        // Now do match for each type
-        match operation_type {
-            FileOpsType::Delete => {
-                // TODO: Handle delete operation
-
-                let file_location = get_file_location(&state.pg_pool, &file_request.folder_id, &file_id, file_request.file_version).await?;
-                if file_location.is_none() {
-                    return Err(AppError::BadRequest("File location not found".into()));
-                }
-                let file_location = file_location.unwrap();
-                let file_storage_api_base_url = file_location.hosted_at;
-
-                // TODO: Delete the file using DB call (just that version)
-
-                return Err(AppError::NotImplemented("Delete operation is not implemented yet".into()));
-            },
-            FileOpsType::Replace => {
-                // TODO: Handle update operation
-                // Mark the file as locked
-
-                let file_location = get_file_location(&state.pg_pool, &file_request.folder_id, &file_id, file_request.file_version).await?;
-                if file_location.is_none() {
-                    return Err(AppError::BadRequest("File location not found".into()));
-                }
-                let file_location = file_location.unwrap();
-                let file_storage_api_base_url = file_location.hosted_at;
-
-                // Quota should be = new file size - existing file size
-
-                // return Err(AppError::NotImplemented("Replace operation is not implemented yet".into()));
-            },
-            _ => {}
-        }
-    }
-
-    Ok(HttpResponse::Ok().finish())
-}
 
 
 #[post("/upload")]
@@ -511,7 +439,7 @@ pub async fn delete_any_file_version(request: HttpRequest, file_request: web::Js
 
     // Delete the specified file version
     delete_file_version(
-        state.pg_pool.clone(),
+        &state.pg_pool,
         file_access.owner_user_id,
         file_id,
         file_request.file_version

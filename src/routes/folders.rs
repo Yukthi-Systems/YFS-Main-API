@@ -1,6 +1,7 @@
 use crate::database::folders::{create_new_folder, edit_folder_info, get_folders_and_files, get_root_folders, move_folder_under};
+use crate::handlers::deletion::delete_folder_and_contents;
 use crate::models::folders::{EditFolderRequest, MoveFolderRequest, NewFolderRequest};
-use actix_web::{HttpMessage, HttpRequest, HttpResponse, get, patch, post, put, web};
+use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, patch, post, put, web};
 use crate::handlers::access::{authorize_folder_access, SharedPermission};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::models::user::SessionUser;
@@ -144,4 +145,38 @@ pub async fn move_folder(request: HttpRequest, move_request: web::Json<MoveFolde
     ).await?;
 
     Ok(HttpResponse::Ok().finish())
+}
+
+
+#[delete("/delete")]
+pub async fn delete_folder(request: HttpRequest, delete_request: web::Json<EditFolderRequest>, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    // Authorize access to the folder being edited, considering shared folder permissions if applicable
+    let folder_access = authorize_folder_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &delete_request.folder_id,
+        delete_request.shared_folder_id,
+        delete_request.shared_folder_id.map(|_| SharedPermission::Delete),
+    ).await?;
+
+    edit_folder_info(
+        &state.pg_pool,
+        &folder_access.owner_user_id,
+        &delete_request.folder_id,
+        &delete_request.folder_name,
+        &delete_request.folder_info,
+    ).await?;
+
+    // Spawn a background task to delete the folder and its contents asynchronously
+    tokio::spawn(delete_folder_and_contents(
+        state.pg_pool.clone(),
+        folder_access.owner_user_id,
+        delete_request.folder_id
+    ));
+
+    Ok(HttpResponse::Accepted().finish())
 }
