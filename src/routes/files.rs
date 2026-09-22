@@ -1,5 +1,6 @@
-use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, delete_file_version, get_all_file_locations, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
+use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_all_file_locations, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
 use crate::database::user::update_quota;
+use crate::handlers::deletion::delete_file_version;
 use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session, delete_paths_from_server};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
 use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
@@ -509,32 +510,12 @@ pub async fn delete_any_file_version(request: HttpRequest, file_request: web::Js
     // Validate the file operation against the current file information
     file_request.validate_against_info(&operation_type, &file_access.file_info)?;
 
-    let file_location = get_file_location(&state.pg_pool, &file_request.folder_id, &file_id, file_request.file_version).await?;
-    if file_location.is_none() {
-        return Err(AppError::Gone("File location not found".into()));
-    }
-    let file_location = file_location.unwrap();
-
-    delete_paths_from_server(
-        &file_location.hosted_at,
-        &API_SETTINGS.file_store_api_key,
-        &serde_json::json!([&file_location.file_location]),
-    ).await?;
-
-    // Remove the version entry from the database
-    let file_size = delete_file_version(
-        &state.pg_pool,
-        &file_id,
-        file_request.file_version,
-    ).await?;
-
-    // Update the Quota
-    update_quota(
-        &state.pg_pool,
-        &file_access.owner_user_id,
-        &file_location.hosted_at,
-        -file_size,
-        -1
+    // Delete the specified file version
+    delete_file_version(
+        state.pg_pool.clone(),
+        file_access.owner_user_id,
+        file_id,
+        file_request.file_version
     ).await?;
 
     Ok(HttpResponse::NoContent().finish())

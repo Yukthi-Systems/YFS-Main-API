@@ -1,4 +1,4 @@
-use crate::models::files::{BasicFileInfo, FileLocation};
+use crate::models::files::{BasicFileInfo, FileLocation, FileVersionInfo};
 use deadpool_postgres::Pool as PgPool;
 use crate::models::errors::AppError;
 use uuid::Uuid;
@@ -298,32 +298,6 @@ pub async fn delete_all_orphaned_files(db_pool: &PgPool) -> Result<(), AppError>
 }
 
 
-pub async fn delete_file_version(db_pool: &PgPool, file_id: &Uuid, file_version: i32) -> Result<i64, AppError> {
-    let client = db_pool.get().await?;
-
-    let row = client
-        .query_one(
-            r#"
-            WITH deleted AS (
-                DELETE FROM file_versions
-                WHERE file_id = $1
-                  AND file_version = $2
-                RETURNING file_id, file_size
-            )
-            UPDATE files
-            SET updated_at = CURRENT_TIMESTAMP
-            FROM deleted
-            WHERE files.file_id = deleted.file_id
-            RETURNING deleted.file_size
-            "#,
-            &[file_id, &file_version],
-        )
-        .await?;
-
-    Ok(row.get("file_size"))
-}
-
-
 pub async fn get_all_file_locations(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uuid) -> Result<Vec<FileLocation>, AppError> {
     let client = db_pool.get().await?;
 
@@ -342,4 +316,56 @@ pub async fn get_all_file_locations(db_pool: &PgPool, folder_id: &Uuid, file_id:
         .await?;
 
     Ok(FileLocation::from_rows(rows))
+}
+
+
+pub async fn get_file_version_details(db_pool: &PgPool, owner_id: &Uuid, file_id: &Uuid) -> Result<Vec<FileVersionInfo>, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                file_version,
+                hosted_at,
+                file_location,
+                file_size
+            FROM file_versions
+            WHERE
+                user_id = $1
+                AND file_id = $2
+            "#,
+            &[owner_id, file_id],
+        )
+        .await?;
+
+    Ok(FileVersionInfo::from_rows(rows))
+}
+
+
+pub async fn delete_file_versions(db_pool: &PgPool, file_id: &Uuid, file_versions: &[i32]) -> Result<(i64, i32), AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            WITH deleted AS (
+                DELETE FROM file_versions
+                WHERE file_id = $1
+                  AND file_version = ANY($2)
+                RETURNING file_id, file_size
+            )
+            UPDATE files
+            SET updated_at = CURRENT_TIMESTAMP
+            FROM deleted
+            WHERE files.file_id = deleted.file_id
+            RETURNING
+                SUM(deleted.file_size) AS total_deleted_size,
+                COUNT(deleted.file_id) AS total_deleted_count::INT
+            "#,
+            &[file_id, &file_versions],
+        )
+        .await?;
+
+    Ok((row.get("total_deleted_size"), row.get("total_deleted_count")))
 }

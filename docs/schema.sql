@@ -74,7 +74,7 @@ CREATE TABLE file_versions (
     file_version INTEGER NOT NULL,
 
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    hosted_at VARCHAR(255) NOT NULL REFERENCES storage_servers(server_address) ON DELETE CASCADE,
+    hosted_at VARCHAR(255) NOT NULL REFERENCES servers(host_address) ON DELETE CASCADE,
 
     file_location TEXT NOT NULL, -- Location of the file in the storage system (IP:port/org-id/user-id/file-id[:2]/file-id)
     file_size BIGINT NOT NULL, -- Size of the file in bytes

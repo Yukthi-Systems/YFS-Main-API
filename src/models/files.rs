@@ -82,6 +82,15 @@ pub struct FileStorageAPI {
 }
 
 
+#[derive(Serialize)]
+pub struct FileVersionInfo {
+    pub file_version: i32,
+    pub file_size: i64,
+    pub hosted_at: String,
+    pub file_location: String,
+}
+
+
 // ------- Implementations ------- //
 
 
@@ -113,6 +122,25 @@ impl From<Row> for FileLocation {
 
 
 impl FileLocation {
+    pub fn from_rows(rows: Vec<Row>) -> Vec<Self> {
+        rows.into_iter().map(Self::from).collect()
+    }
+}
+
+
+impl From<Row> for FileVersionInfo {
+    fn from(row: Row) -> Self {
+        FileVersionInfo {
+            file_version: row.get("file_version"),
+            file_size: row.get("file_size"),
+            hosted_at: row.get("hosted_at"),
+            file_location: row.get("file_location"),
+        }
+    }
+}
+
+
+impl FileVersionInfo {
     pub fn from_rows(rows: Vec<Row>) -> Vec<Self> {
         rows.into_iter().map(Self::from).collect()
     }

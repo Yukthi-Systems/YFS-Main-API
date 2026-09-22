@@ -2,6 +2,7 @@ use crate::models::initial::RmqSettings;
 use chrono::Datelike;
 
 pub mod storage_api;
+pub mod deletion;
 pub mod access;
 pub mod jobs;
 pub mod auth;
