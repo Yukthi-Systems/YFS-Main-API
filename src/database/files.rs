@@ -298,27 +298,6 @@ pub async fn delete_all_orphaned_files(db_pool: &PgPool) -> Result<(), AppError>
 }
 
 
-pub async fn get_all_file_locations(db_pool: &PgPool, folder_id: &Uuid, file_id: &Uuid) -> Result<Vec<FileLocation>, AppError> {
-    let client = db_pool.get().await?;
-
-    let rows = client
-        .query(
-            r#"
-            SELECT fv.file_location, fv.hosted_at
-            FROM file_versions fv
-            INNER JOIN files f
-                ON f.file_id = fv.file_id
-            WHERE f.folder_id = $1
-            AND fv.file_id = $2
-            "#,
-            &[folder_id, file_id],
-        )
-        .await?;
-
-    Ok(FileLocation::from_rows(rows))
-}
-
-
 pub async fn get_file_version_details(db_pool: &PgPool, owner_id: &Uuid, file_id: &Uuid) -> Result<Vec<FileVersionInfo>, AppError> {
     let client = db_pool.get().await?;
 

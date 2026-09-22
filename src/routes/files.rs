@@ -1,14 +1,13 @@
-use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_all_file_locations, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
+use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_info_by_id, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
 use crate::database::user::update_quota;
-use crate::handlers::deletion::delete_file_version;
-use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session, delete_paths_from_server};
+use crate::handlers::deletion::{delete_file_and_versions, delete_file_version};
+use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
 use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, patch, post, put, web};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::state::{AppState, API_SETTINGS};
 use crate::models::user::SessionUser;
-use std::collections::HashMap;
 use uuid::Uuid;
 
 
@@ -549,45 +548,12 @@ pub async fn delete_full_file(request: HttpRequest, file_request: web::Json<File
     // Validate the file operation against the current file information
     file_request.validate_against_info(&operation_type, &file_access.file_info)?;
 
-    let all_file_locations = get_all_file_locations(&state.pg_pool, &file_request.folder_id, &file_id).await?;
-    if all_file_locations.is_empty() {
-        return Err(AppError::Gone("No file locations found".into()));
-    }
-    
-    // do it like this file host as key and value as list of file locations
-    let mut file_locations_map: HashMap<String, Vec<String>> = HashMap::new();
-    for loc in &all_file_locations {
-        file_locations_map.entry(loc.hosted_at.clone())
-            .or_insert_with(Vec::new)
-            .push(loc.file_location.clone());
-    }
-
-    // Loop through the file locations map and delete all of them together
-    for (hosted_at, file_paths) in &file_locations_map {
-        // Delete the file paths from the server
-        delete_paths_from_server(
-            hosted_at,
-            &API_SETTINGS.file_store_api_key,
-            &serde_json::json!(file_paths),
-        ).await?;
-
-        // Delete the file versions from the server as well
-        let (total_size, total_versions) = delete_file(
-            &state.pg_pool,
-            &file_request.folder_id,
-            &file_access.owner_user_id,
-            &file_id,
-        ).await?;
-
-        // Update the quota based on the deleted file versions
-        update_quota(
-            &state.pg_pool,
-            &file_access.owner_user_id,
-            &hosted_at,
-            -total_size,
-            -total_versions
-        ).await?;
-    }
+    // Delete the full file and all its versions
+    delete_file_and_versions(
+        &state.pg_pool,
+        file_access.owner_user_id,
+        file_id
+    ).await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
