@@ -325,6 +325,8 @@ pub async fn get_file_version_details(db_pool: &PgPool, owner_id: &Uuid, file_id
 pub async fn delete_file_versions(db_pool: &PgPool, file_id: &Uuid, file_versions: &[i32]) -> Result<(i64, i32), AppError> {
     let client = db_pool.get().await?;
 
+    // This will delete the specified file versions, update the file's timestamp if there are remaining versions,
+    // and delete the file itself if no versions remain, all in a single query using CTEs.
     let row = client
         .query_one(
             r#"
