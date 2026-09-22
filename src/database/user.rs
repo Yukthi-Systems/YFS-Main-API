@@ -296,28 +296,26 @@ pub async fn recalculate_user_quota(db_pool: &PgPool, user_id: &Uuid) -> Result<
 pub async fn update_quota(db_pool: &PgPool, user_id: &Uuid, server_host_address: &str, add_quota_bytes: i64, add_file_count: i32) -> Result<(), AppError> {
     let client = db_pool.get().await?;
 
-    // Update the user's quota in the user_quotas table
+    // Update the user's quota and the server's utilized quota in a single query using a CTE
     client
         .execute(
             r#"
-            UPDATE user_quotas
-            SET used_storage_bytes = used_storage_bytes + $1,
-                used_file_count = used_file_count + $2
-            WHERE user_id = $3
-            "#,
-            &[&add_quota_bytes, &add_file_count, user_id],
-        )
-        .await?;
-
-    // Update the server quota in 
-    client
-        .execute(
-            r#"
+            WITH updated_user_quota AS (
+                UPDATE user_quotas
+                SET used_storage_bytes = used_storage_bytes + $1,
+                    used_file_count = used_file_count + $2
+                WHERE user_id = $3
+            )
             UPDATE servers
             SET quota_utilized_bytes = quota_utilized_bytes + $1
-            WHERE host_address = $2
+            WHERE host_address = $4
             "#,
-            &[&add_quota_bytes, &server_host_address],
+            &[
+                &add_quota_bytes,
+                &add_file_count,
+                user_id,
+                &server_host_address,
+            ],
         )
         .await?;
 

@@ -333,14 +333,36 @@ pub async fn delete_file_versions(db_pool: &PgPool, file_id: &Uuid, file_version
                 WHERE file_id = $1
                   AND file_version = ANY($2)
                 RETURNING file_id, file_size
+            ),
+            stats AS (
+                SELECT
+                    COALESCE(SUM(file_size), 0)::BIGINT AS total_deleted_size,
+                    COUNT(*)::INT AS total_deleted_count
+                FROM deleted
+            ),
+            remaining AS (
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM file_versions
+                    WHERE file_id = $1
+                ) AS has_remaining
+            ),
+            deleted_file AS (
+                DELETE FROM files
+                WHERE file_id = $1
+                  AND NOT (SELECT has_remaining FROM remaining)
+            ),
+            updated_file AS (
+                UPDATE files
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE file_id = $1
+                  AND (SELECT has_remaining FROM remaining)
+                RETURNING file_id
             )
-            UPDATE files
-            SET updated_at = CURRENT_TIMESTAMP
-            FROM deleted
-            WHERE files.file_id = deleted.file_id
-            RETURNING
-                SUM(deleted.file_size) AS total_deleted_size,
-                COUNT(deleted.file_id) AS total_deleted_count::INT
+            SELECT
+                total_deleted_size,
+                total_deleted_count
+            FROM stats
             "#,
             &[file_id, &file_versions],
         )
