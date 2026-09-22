@@ -502,7 +502,7 @@ pub async fn delete_any_file_version(request: HttpRequest, file_request: web::Js
         &file_request.folder_id,
         &file_id,
         file_request.shared_folder_id,
-        file_request.shared_folder_id.map(|_| SharedPermission::Download),
+        file_request.shared_folder_id.map(|_| SharedPermission::Delete),
     ).await?;
 
     // Validate the file operation against the current file information
@@ -561,7 +561,7 @@ pub async fn delete_full_file(request: HttpRequest, file_request: web::Json<File
         &file_request.folder_id,
         &file_id,
         file_request.shared_folder_id,
-        file_request.shared_folder_id.map(|_| SharedPermission::Download),
+        file_request.shared_folder_id.map(|_| SharedPermission::Delete),
     ).await?;
 
     // Validate the file operation against the current file information

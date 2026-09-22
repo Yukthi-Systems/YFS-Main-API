@@ -7,7 +7,6 @@ use crate::models::errors::AppError;
 use uuid::Uuid;
 
 
-#[derive(Clone, Copy)]
 pub enum SharedPermission {
     Create,
     Update,
