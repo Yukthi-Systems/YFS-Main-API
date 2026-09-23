@@ -34,6 +34,12 @@ async fn delete_folder_contents_recursively(db_pool: &PgPool, owner_id: Uuid, fo
         Box::pin(delete_folder_contents_recursively(db_pool, owner_id, subfolder_id, current_level + 1)).await?;
     }
 
+    // Delete the folder itself if it is now empty
+    let is_empty = delete_folder_if_empty(&db_pool, &folder_id).await?;
+    if is_empty {
+        log::trace!("Current level {}: Deleted folder with ID: {} as it is now empty", current_level, folder_id);
+    }
+
     Ok(())
 }
 
