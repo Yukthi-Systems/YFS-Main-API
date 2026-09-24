@@ -182,6 +182,20 @@ pub async fn edit_folder_info(db_pool: &PgPool, user_id: &Uuid, folder_id: &Uuid
 
 
 pub async fn move_folder_under(db_pool: &PgPool, user_id: &Uuid, folder_id: &Uuid, new_parent_folder_id: Option<Uuid>) -> Result<(), AppError> {
+    // Folder can not move under itself
+    if let Some(new_parent_id) = new_parent_folder_id {
+        if new_parent_id == *folder_id {
+            return Err(AppError::BadRequest("Folder cannot be moved under itself".into()));
+        }
+    }
+
+    // Folder can not move under a child of itself to prevent circular hierarchy
+    if let Some(new_parent_id) = new_parent_folder_id {
+        if is_folder_under_parent(db_pool, &new_parent_id, folder_id).await? {
+            return Err(AppError::BadRequest("Folder cannot be moved under a child of itself".into()));
+        }
+    }
+
     let client = db_pool.get().await?;
 
     client
