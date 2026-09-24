@@ -397,7 +397,7 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
             "latest_file_version": file_access.file_info.available_versions.iter().max().cloned().unwrap_or(1),
             "user_id": session_user.user_id,
             "user_name": &session_user.email,
-            "can_write": true,
+            "can_write": to_write,
         }),
     ).await?;
 
