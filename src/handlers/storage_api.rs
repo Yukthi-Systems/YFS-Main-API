@@ -108,3 +108,24 @@ pub async fn delete_paths_from_server<T: ToString>(base_url: &str, api_key: &str
         Err(AppError::BadRequest(format!("Failed to delete paths: {}", error_text)))
     }
 }
+
+
+/// Generate a folder download session from the YFS-Archive-API (alias for the Download Manager)
+pub async fn generate_folder_download_session<T: ToString>(base_url: &str, api_key: &str, body: &T) -> Result<JsonValue, AppError> {
+    let client = Client::new();
+    let url = format!("{}/internal/archives", base_url);
+    let response = client.post(&url)
+        .header("X-API-Token", api_key)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        let json_response = response.json::<JsonValue>().await?;
+        Ok(json_response)
+    } else {
+        let error_text = response.text().await?;
+        Err(AppError::BadRequest(format!("Failed to generate folder download session: {}", error_text)))
+    }
+}

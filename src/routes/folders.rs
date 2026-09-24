@@ -1,12 +1,13 @@
-use crate::database::folders::{create_new_folder, edit_folder_info, get_folders_and_files, get_root_folders, move_folder_under};
-use crate::handlers::deletion::delete_folder_and_contents;
-use crate::models::folders::{EditFolderRequest, MoveFolderRequest, NewFolderRequest};
+use crate::database::folders::{create_new_folder, edit_folder_info, get_folders_and_files, get_root_folders, move_folder_under, get_folder_total_size};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, patch, post, put, web};
+use crate::models::folders::{EditFolderRequest, MoveFolderRequest, NewFolderRequest};
 use crate::handlers::access::{authorize_folder_access, SharedPermission};
+use crate::handlers::storage_api::generate_folder_download_session;
+use crate::handlers::deletion::delete_folder_and_contents;
 use crate::models::errors::{ApiResponse, AppError};
+use crate::state::{AppState, API_SETTINGS};
 use crate::models::user::SessionUser;
 use crate::models::PageQuery;
-use crate::state::AppState;
 use uuid::Uuid;
 
 
@@ -179,4 +180,43 @@ pub async fn delete_folder(request: HttpRequest, delete_request: web::Json<EditF
     ));
 
     Ok(HttpResponse::Accepted().finish())
+}
+
+
+#[post("/download/{export_type}")]
+pub async fn download_folder(request: HttpRequest, export_type: web::Path<String>, edit_folder: web::Json<EditFolderRequest>, state: web::Data<AppState>) -> ApiResponse {
+    // Get SessionUser from request extensions
+    let ext = request.extensions();
+    let session_user = ext.get::<SessionUser>().unwrap();
+
+    // Authorize access to the folder being edited, considering shared folder permissions if applicable
+    authorize_folder_access(
+        &state.pg_pool,
+        &session_user.user_id,
+        &edit_folder.folder_id,
+        edit_folder.shared_folder_id,
+        edit_folder.shared_folder_id.map(|_| SharedPermission::Download),
+    ).await?;
+
+    // Get total size of the folder contents before generating the download session
+    let total_size = get_folder_total_size(&state.pg_pool, &edit_folder.folder_id).await?;
+    if total_size == 0 {
+        return Err(AppError::Unprocessable("There are no files to download in the folder".into()));
+    }
+    if total_size >= API_SETTINGS.max_instant_download_size {
+        return Err(AppError::Unprocessable("The folder is too large to download".into()));
+    }
+
+    // Generate an folder download session for the requested folder
+    let download_session_response = generate_folder_download_session(
+        &API_SETTINGS.download_manager_api_url,
+        &API_SETTINGS.download_manager_api_key,
+        &serde_json::json!({
+            "root_folder_id": edit_folder.folder_id,
+            "archive_name": edit_folder.folder_name,
+            "export_type": export_type.into_inner()
+        }),
+    ).await?;
+
+    Ok(HttpResponse::Ok().json(download_session_response))
 }

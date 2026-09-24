@@ -44,6 +44,9 @@ pub struct ApiSettings {
     pub sso_api_key: String,
     pub file_store_api_key: String, // Same for all file store hosts
     pub file_store_host: String,    // TODO: Temp. only we will later make this via SSO API (available servers per org)
+    pub max_instant_download_size: i64,
+    pub download_manager_api_url: String,
+    pub download_manager_api_key: String,
 }
 
 
@@ -180,6 +183,19 @@ impl ApiSettings {
         let file_store_api_key = env_var("FILE_STORE_API_KEY").expect("FILE_STORE_API_KEY must be set");
         let file_store_host = env_var("FILE_STORE_HOST").expect("FILE_STORE_HOST must be set");
 
+        let max_instant_download_size = env_var("MAX_INSTANT_DOWNLOAD_SIZE")
+            .ok()
+            .map(|s| s.parse::<i64>().expect("MAX_INSTANT_DOWNLOAD_SIZE must be a valid integer"))
+            .expect("MAX_INSTANT_DOWNLOAD_SIZE must be set");
+
+        // Ensure that the maximum instant download size is a positive integer
+        if max_instant_download_size <= 0 {
+            panic!("MAX_INSTANT_DOWNLOAD_SIZE must be a positive integer");
+        }
+
+        let download_manager_api_url = env_var("DOWNLOAD_MANAGER_API_URL").expect("DOWNLOAD_MANAGER_API_URL must be set");
+        let download_manager_api_key = env_var("DOWNLOAD_MANAGER_API_KEY").expect("DOWNLOAD_MANAGER_API_KEY must be set");
+
         ApiSettings {
             allowed_origins,
             self_api_key,
@@ -187,6 +203,9 @@ impl ApiSettings {
             file_store_host,
             sso_api_url,
             sso_api_key,
+            download_manager_api_url,
+            download_manager_api_key,
+            max_instant_download_size,
         }
     }
 }

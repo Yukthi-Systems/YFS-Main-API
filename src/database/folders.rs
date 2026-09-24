@@ -523,3 +523,53 @@ pub async fn delete_folder_if_empty(db_pool: &PgPool, folder_id: &Uuid) -> Resul
 
     Ok(row.is_some())
 }
+
+
+pub async fn get_folder_total_size(db_pool: &PgPool, folder_id: &Uuid) -> Result<i64, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_one(
+            r#"
+            WITH RECURSIVE folder_tree AS (
+                -- Root folder
+                SELECT folder_id
+                FROM folders
+                WHERE folder_id = $1
+                  AND deleted_at IS NULL
+
+                UNION ALL
+
+                -- Descendant folders
+                SELECT f.folder_id
+                FROM folders f
+                INNER JOIN folder_tree ft
+                    ON f.parent_folder_id = ft.folder_id
+                WHERE f.deleted_at IS NULL
+            ),
+
+            latest_versions AS (
+                SELECT DISTINCT ON (fv.file_id)
+                    fv.file_id,
+                    fv.file_size
+                FROM file_versions fv
+                INNER JOIN files f
+                    ON f.file_id = fv.file_id
+                WHERE f.deleted_at IS NULL
+                ORDER BY fv.file_id, fv.file_version DESC
+            )
+
+            SELECT COALESCE(SUM(lv.file_size), 0)::BIGINT
+            FROM files f
+            INNER JOIN folder_tree ft
+                ON ft.folder_id = f.folder_id
+            INNER JOIN latest_versions lv
+                ON lv.file_id = f.file_id
+            WHERE f.deleted_at IS NULL
+            "#,
+            &[folder_id],
+        )
+        .await?;
+
+    Ok(row.get(0))
+}

@@ -121,13 +121,6 @@ impl From<Row> for FileLocation {
 }
 
 
-impl FileLocation {
-    pub fn from_rows(rows: Vec<Row>) -> Vec<Self> {
-        rows.into_iter().map(Self::from).collect()
-    }
-}
-
-
 impl From<Row> for FileVersionInfo {
     fn from(row: Row) -> Self {
         FileVersionInfo {

@@ -87,6 +87,7 @@ async fn main() -> std::io::Result<()> {
                 .service(folders::list_folders_and_files_under)
                 .service(folders::edit_folder_details)
                 .service(folders::list_root_folders)
+                .service(folders::download_folder)
                 .service(folders::delete_folder)
                 .service(folders::create_folder)
                 .service(folders::move_folder)

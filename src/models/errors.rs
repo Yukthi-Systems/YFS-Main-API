@@ -16,12 +16,9 @@ pub enum AppError {
     SerDe(serde_json::Error),
     Reqwest(reqwest::Error),
 
-    Unauthorized(String),
     BadRequest(String),
-    NotImplemented(String),
     Unprocessable(String),
     NotFound(String),
-    Conflict(String),
     Gone(String),
 }
 
@@ -63,12 +60,9 @@ impl fmt::Display for AppError {
             AppError::Pg(e) => pg_error(e, f),
             AppError::Redis(e) => write!(f, "Redis: {}", e),
             AppError::SerDe(e) => write!(f, "JSON: {}", e),
-            AppError::Unauthorized(s) => write!(f, "Unauthorized: {}", s),
             AppError::Reqwest(e) => write!(f, "Reqwest: {}", e),
             AppError::BadRequest(s) => write!(f, "Bad Request: {}", s),
-            AppError::NotImplemented(s) => write!(f, "Not Implemented: {}", s),
             AppError::NotFound(s) => write!(f, "Resource not found: {}", s),
-            AppError::Conflict(s) => write!(f, "Conflict: {}", s),
             AppError::Gone(s) => write!(f, "It's gone: {}", s),
             AppError::Unprocessable(s) => write!(f, "Unprocessable: {}", s),
         }
@@ -119,11 +113,8 @@ impl ResponseError for AppError {
             AppError::Redis(_) => StatusCode::SERVICE_UNAVAILABLE,
             AppError::SerDe(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::Reqwest(_) => StatusCode::BAD_GATEWAY,
-            AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
-            AppError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
-            AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Unprocessable(_) => StatusCode::UNPROCESSABLE_ENTITY,
             AppError::Gone(_) => StatusCode::GONE,
         }
