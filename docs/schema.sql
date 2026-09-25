@@ -149,6 +149,8 @@ CREATE TABLE user_quotas (
 -- Servers
 CREATE TABLE servers (
     host_address VARCHAR(255) PRIMARY KEY,
+    -- TODO: Use the API key and servers in the code and not by Environment Variables
+    secret_key TEXT NOT NULL,   -- API Key for authenticating requests to this server
 
     -- Optional reference to the Organization ID
     -- If present then this server is dedicated to that organization
@@ -170,7 +172,6 @@ CREATE INDEX idx_internal_shares_shared_with_user_id ON internal_shares(shared_w
 CREATE INDEX idx_external_shares_created_by ON external_shares(created_by);
 CREATE INDEX idx_external_shares_share_file_target_id ON external_shares(share_file_target_id);
 CREATE INDEX idx_external_shares_share_folder_target_id ON external_shares(share_folder_target_id);
-CREATE INDEX idx_folders_parent ON folders(parent_folder_id);
 CREATE INDEX idx_folders_user_id ON folders(user_id);
 CREATE INDEX idx_file_versions_file ON file_versions(file_id);
 CREATE INDEX idx_external_expiry ON external_shares(expires_at);
