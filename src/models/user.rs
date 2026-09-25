@@ -189,7 +189,7 @@ impl SessionUser {
 
     /// Validates the user's quota to ensure they have enough available storage for new uploads.
     pub fn validate_quota(&self, required_space: f64) -> Result<(), AppError> {
-        if self.quota_allocated - self.quota_utilized < required_space {
+        if self.quota_allocated - self.quota_utilized >= required_space {
             return Err(AppError::Unprocessable("Not enough quota available".into()));
         }
         Ok(())
