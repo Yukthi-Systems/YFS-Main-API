@@ -117,15 +117,15 @@ async fn main() -> std::io::Result<()> {
             // .service(
             //     actix_scope("/share/public/files")
             //     .wrap(from_fn(middleware::auth::public_auth_check))
-                    // .service(files::update_file_info)
-                    // .service(files::create_wopi_session)
-            //      TODO: Most of the files endpoints to be copied under public access as well
-            //     .service(files::file_operations)
-            //     .service(files::get_file_info)
+                // .service(files::delete_any_file_version)
+                // .service(files::request_file_download)
+                // .service(files::create_wopi_session)
+                // .service(files::request_file_upload)
+                // .service(files::get_file_basic_info)
+                // .service(files::delete_full_file)
+                // .service(files::update_file_info)
+                // .service(files::move_file)
                 // .service(files::copy_file_by_version)    // copy - copy only specific file version to a folder
-                // .service(files::move_file)      // move - Move all, just change the folder_id and all ok
-                // .service(files::delete_file_version)        // Delete file Version from GO API
-                // .service(files::delete_file)        // Delete file from GO API
             // )
             .service(
                 actix_scope("/share/external")
