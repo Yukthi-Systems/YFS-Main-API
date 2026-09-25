@@ -50,8 +50,8 @@ async fn main() -> std::io::Result<()> {
             .service(
                 actix_scope("/public")
                 .service(auth::public_session_validate_password)
-                // .service(auth::public_session_generate_otp)
-                // .service(auth::public_session_validate_otp)
+                .service(auth::public_session_generate_otp)
+                .service(auth::public_session_validate_otp)
                 .service(auth::create_public_session)
                 .service(
                     actix_scope("")

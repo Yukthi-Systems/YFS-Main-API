@@ -202,4 +202,10 @@ impl ExternalShare {
         // Determine if the share is for a file based on the presence of a file target ID or folder target ID
         self.share_file_target_id.is_some() && self.share_folder_target_id.is_none()
     }
+
+    pub fn generate_otp(&self) -> String {
+        // Generate a random 6-digit OTP
+        let otp_code = rand::random_range(100000..999999); // Generate a random 6-digit OTP code (Always 6 digits)
+        otp_code.to_string()
+    }
 }

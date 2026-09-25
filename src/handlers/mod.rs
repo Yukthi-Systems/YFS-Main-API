@@ -1,4 +1,3 @@
-use crate::models::initial::RmqSettings;
 use chrono::Datelike;
 
 pub mod storage_api;
@@ -9,70 +8,8 @@ pub mod auth;
 mod rmq;
 
 
-pub async fn send_login_attempt_notification(
-    rmq_settings: RmqSettings,
-    email: String,
-    ip_addr: String,
-    fcm_tokens: Vec<String>,
-    notification_type: String,
-    notification_title: String,
-    notification_message: String,
-) {
-    for token in &fcm_tokens {
-        // Send notification to RabbitMQ (In background)
-        rmq::send_notification_to_rmq(
-            "fcm",
-            &serde_json::json!({
-                "app_name": "mail25",
-                "token": token,
-                "title": notification_title,
-                "body": notification_message,
-                "data": {
-                    "email": email,
-                    "ip_addr": ip_addr,
-                    "notification_type": notification_type,
-                }
-            })
-        ).await.unwrap_or_else(|err| {
-            log::error!("Failed to send login attempt notification: {}", err);
-        });
-    }
-}
 
-
-pub async fn send_app_2fa_notification(
-    rmq_settings: &RmqSettings,
-    email: String,
-    otp_code: String,
-    fcm_tokens: Vec<String>,
-) {
-    for token in &fcm_tokens {
-        // Send notification to RabbitMQ (In background)
-        rmq::send_notification_to_rmq(
-            "fcm",
-            &serde_json::json!({
-                "app_name": "mail25",
-                "token": token,
-                "title": "SSO - Verification Code",
-                "body": "Enter this verification code in your page to complete the login process.",
-                "data": {
-                    "email": email,
-                    "otp_code": otp_code,
-                    "notification_type": "SSO_2FA_APP_OTP",
-                }
-            })
-        ).await.unwrap_or_else(|err| {
-            log::error!("Failed to send app 2FA notification: {}", err);
-        });
-    }
-}
-
-
-pub async fn send_sms_2fa_notification(
-    rmq_settings: &RmqSettings,
-    phone_number: String,
-    otp_code: String,
-) {
+pub async fn send_sms_2fa_notification(phone_number: String, otp_code: String) {
     // Send notification to RabbitMQ (In background)
     rmq::send_notification_to_rmq(
         "sms",
@@ -90,13 +27,7 @@ pub async fn send_sms_2fa_notification(
 }
 
 
-pub async fn send_email_2fa_notification(
-    rmq_settings: &RmqSettings,
-    email: String,
-    otp_code: String,
-    org_name: String,
-    user_name: String,
-) {
+pub async fn send_email_2fa_notification(email: String, otp_code: String, org_name: String, user_name: String) {
     // Send notification to RabbitMQ (In background)
     rmq::send_notification_to_rmq(
         "email",

@@ -1,6 +1,7 @@
 use crate::database::user::{check_user_session, create_user_session, delete_user_session, update_user_last_seen};
 use crate::cache::handler::{set_redis_cache, delete_redis_cache, get_redis_cache};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, get, post, web};
+use crate::handlers::{send_email_2fa_notification, send_sms_2fa_notification};
 use crate::models::user::{SessionUser, PublicSessionUser};
 use crate::database::shares::get_external_share_by_id;
 use crate::models::errors::{ApiResponse, AppError};
@@ -274,6 +275,153 @@ pub async fn public_session_validate_password(request: HttpRequest, raw_password
 
     // At this point, the password has been validated successfully
     // We remove the old session from the cache as the password has been validated successfully
+    delete_redis_cache(state.redis_cache.clone(), &session_cache_key).await?;
+
+    // Create a new valid public session for the public session user
+    let new_session = PublicSessionUser::new(share_details, true);
+
+    // Store the new session in the cache with a TTL of 3 hours
+    set_redis_cache(state.redis_cache.clone(), &session_cache_key, &new_session, 60 * 60 * 3).await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+
+#[post("/otp/generate/{otp_type}/{phone_or_email}")]
+pub async fn public_session_generate_otp(request: HttpRequest, path: web::Path<(String, String)>, state: web::Data<AppState>) -> ApiResponse {
+    // Fetch the public session from the request header
+    let (otp_type, phone_or_email) = path.into_inner();
+    let public_session_id = request
+        .headers()
+        .get("x-public-session-id")
+        .and_then(|hv| hv.to_str().ok())
+        .map(|s| s.to_string());
+
+    if public_session_id.is_none() {
+        return Err(AppError::BadRequest("Missing public session ID".into()));
+    }
+    if otp_type != "sms" && otp_type != "email" {
+        return Err(AppError::BadRequest("Invalid OTP type".into()));
+    }
+    if phone_or_email.is_empty() {
+        return Err(AppError::BadRequest("Missing phone or email".into()));
+    }
+
+    let public_session_id = public_session_id.unwrap();
+    let session_cache_key = format!("public:{}", public_session_id);
+
+    // Get the share_id from the public session cache
+    let public_session: Option<PublicSessionUser> = get_redis_cache(state.redis_cache.clone(), &session_cache_key).await?;
+    if public_session.is_none() {
+        return Err(AppError::BadRequest("The public session does not exist or has expired".into()));
+    }
+    let public_session = public_session.unwrap();
+
+    // Fetch the share details from the database using the share_id
+    let share_details  = get_external_share_by_id(&state.pg_pool, &public_session.share_id).await?;
+    if share_details.is_none() {
+        return Err(AppError::BadRequest("The external share does not exist".into()));
+    }
+    let share_details = share_details.unwrap();
+    let otp_code = share_details.generate_otp();
+
+    // Ensure the external share is still valid and has restrictions
+    if share_details.is_expired() || !share_details.has_restrictions() {
+        return Err(AppError::Unprocessable("The external share is either expired or does not have restrictions".into()));
+    }
+
+    // Two cases "sms" and "email"
+    if otp_type == "sms" {
+        // Make sure it has the phone number
+        if !share_details.phones_for_otp.contains(&phone_or_email) {
+            return Err(AppError::Unprocessable("The phone number is not authorized for OTP".into()));
+        }
+
+        // Store the OTP code in the cache
+        let otp_cache_key = format!("otp:{}:sms:{}", public_session_id, phone_or_email);
+        set_redis_cache(state.redis_cache.clone(), &otp_cache_key, &otp_code, 60 * 5).await?;
+
+        // Send the OTP code via SMS to the phone number
+        tokio::spawn(send_sms_2fa_notification(phone_or_email, otp_code));
+
+    } else if otp_type == "email" {
+        // Make sure it has the email address
+        if !share_details.emails_for_otp.contains(&phone_or_email) {
+            return Err(AppError::Unprocessable("The email address is not authorized for OTP".into()));
+        }
+
+        // Store the OTP code in the cache
+        let otp_cache_key = format!("otp:{}:email:{}", public_session_id, phone_or_email);
+        set_redis_cache(state.redis_cache.clone(), &otp_cache_key, &otp_code, 60 * 5).await?;
+
+        // Send the OTP code via email to the email address
+        tokio::spawn(send_email_2fa_notification(phone_or_email.clone(), otp_code, public_session.share_id, phone_or_email));
+    }
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+
+#[post("/otp/validate/{otp_type}/{phone_or_email}/{otp}")]
+pub async fn public_session_validate_otp(request: HttpRequest, path: web::Path<(String, String, String)>, state: web::Data<AppState>) -> ApiResponse {
+    // Fetch the public session from the request header
+    let (otp_type, phone_or_email, otp) = path.into_inner();
+    let public_session_id = request
+        .headers()
+        .get("x-public-session-id")
+        .and_then(|hv| hv.to_str().ok())
+        .map(|s| s.to_string());
+
+    if public_session_id.is_none() {
+        return Err(AppError::BadRequest("Missing public session ID".into()));
+    }
+    if otp_type != "sms" && otp_type != "email" {
+        return Err(AppError::BadRequest("Invalid OTP type".into()));
+    }
+    if phone_or_email.is_empty() {
+        return Err(AppError::BadRequest("Missing phone or email".into()));
+    }
+
+    let public_session_id = public_session_id.unwrap();
+    let session_cache_key = format!("public:{}", public_session_id);
+    let otp_cache_key = format!("otp:{}:{}:{}", public_session_id, otp_type, phone_or_email);
+
+    // Fetch the OTP code from the cache
+    let cached_otp: Option<String> = get_redis_cache(state.redis_cache.clone(), &otp_cache_key).await?;
+    if cached_otp.is_none() {
+        return Err(AppError::BadRequest("The OTP code does not exist or has expired".into()));
+    }
+    let cached_otp = cached_otp.unwrap();
+
+    // Get the share_id from the public session cache
+    let public_session: Option<PublicSessionUser> = get_redis_cache(state.redis_cache.clone(), &session_cache_key).await?;
+    if public_session.is_none() {
+        return Err(AppError::BadRequest("The public session does not exist or has expired".into()));
+    }
+    let public_session = public_session.unwrap();
+
+    // Fetch the share details from the database using the share_id
+    let share_details  = get_external_share_by_id(&state.pg_pool, &public_session.share_id).await?;
+    if share_details.is_none() {
+        return Err(AppError::BadRequest("The external share does not exist".into()));
+    }
+    let share_details = share_details.unwrap();
+
+    // Ensure the external share is still valid and has restrictions
+    if share_details.is_expired() || !share_details.has_restrictions() {
+        return Err(AppError::BadRequest("The external share is either expired or does not have restrictions".into()));
+    }
+
+    // Validate the provided OTP against the share details
+    if cached_otp != otp {
+        // Delete the OTP from the cache as it is invalid
+        delete_redis_cache(state.redis_cache.clone(), &otp_cache_key).await?;
+
+        return Err(AppError::Unprocessable("Invalid OTP".into()));
+    }
+
+    // At this point, the OTP has been validated successfully
+    // We remove the old session from the cache as the OTP has been validated successfully
     delete_redis_cache(state.redis_cache.clone(), &session_cache_key).await?;
 
     // Create a new valid public session for the public session user

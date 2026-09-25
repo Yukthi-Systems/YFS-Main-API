@@ -20,6 +20,7 @@ deadpool = "0.13"
 bcrypt = "0.18.0"
 tokio = "1.47.1"
 base64 = "0.22"
+rand = "0.10"
 log = "0.4"
 
 
