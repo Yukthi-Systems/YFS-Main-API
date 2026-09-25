@@ -161,46 +161,6 @@ pub async fn add_or_update_file_version(
 }
 
 
-pub async fn delete_file(db_pool: &PgPool, folder_id: &Uuid, user_id: &Uuid, file_id: &Uuid) -> Result<(i64, i32), AppError> {
-    let client = db_pool.get().await?;
-
-    let row = client
-        .query_one(
-            r#"
-            WITH file_stats AS (
-                SELECT
-                    COALESCE(SUM(fv.file_size), 0)::BIGINT AS total_size,
-                    COUNT(fv.file_id)::INT AS total_versions
-                FROM files f
-                LEFT JOIN file_versions fv
-                    ON fv.file_id = f.file_id
-                WHERE f.file_id = $1
-                  AND f.folder_id = $2
-                  AND f.user_id = $3
-            ),
-            deleted AS (
-                DELETE FROM files
-                WHERE file_id = $1
-                  AND folder_id = $2
-                  AND user_id = $3
-                RETURNING file_id
-            )
-            SELECT
-                file_stats.total_size,
-                file_stats.total_versions
-            FROM file_stats
-            WHERE EXISTS (
-                SELECT 1 FROM deleted
-            )
-            "#,
-            &[file_id, folder_id, user_id],
-        )
-        .await?;
-
-    Ok((row.get("total_size"), row.get("total_versions")))
-}
-
-
 pub async fn update_base_file_info(
     db_pool: &PgPool,
     file_id: &Uuid,
@@ -319,6 +279,28 @@ pub async fn get_file_version_details(db_pool: &PgPool, owner_id: &Uuid, file_id
         .await?;
 
     Ok(FileVersionInfo::from_rows(rows))
+}
+
+
+pub async fn get_file_version_size(db_pool: &PgPool, owner_id: &Uuid, file_id: &Uuid, file_version: i32) -> Result<i64, AppError> {
+    let client = db_pool.get().await?;
+
+    let rows = client
+        .query_one(
+            r#"
+            SELECT
+                file_size
+            FROM file_versions
+            WHERE
+                user_id = $1
+                AND file_id = $2
+                AND file_version = $3
+            "#,
+            &[owner_id, file_id, &file_version],
+        )
+        .await?;
+
+    Ok(rows.get("file_size"))
 }
 
 

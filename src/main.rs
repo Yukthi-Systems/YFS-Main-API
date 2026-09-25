@@ -36,8 +36,8 @@ async fn main() -> std::io::Result<()> {
             .service(
                 actix_scope("/internal/callback")
                 .wrap(from_fn(middleware::auth::api_key_check))
-                // .service(files::callback_file_replace)
-                // .service(files::callback_file_delete)
+                .service(files::callback_file_replace)
+                .service(files::callback_file_delete)
                 .service(files::callback_file_upload)
             )
             .service(

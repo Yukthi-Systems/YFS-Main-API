@@ -1,4 +1,4 @@
-use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file, get_file_location, lock_base_file_entry, move_file_to_folder, update_base_file_info};
+use crate::database::files::{add_or_update_file_version, create_base_file_entry, delete_file_versions, get_file_location, get_file_version_size, lock_base_file_entry, move_file_to_folder, update_base_file_info};
 use crate::handlers::storage_api::{generate_upload_sessions, build_file_location, generate_download_sessions, generate_wopi_session};
 use crate::handlers::access::{authorize_file_access, authorize_folder_access, SharedPermission};
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, patch, post, put, web};
@@ -110,10 +110,9 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
 }
 
 
-#[post("/upload/{is_success}")]
-pub async fn callback_file_upload(path: web::Path<bool>, file_request: web::Json<FileOpsCallBack>, state: web::Data<AppState>) -> ApiResponse {
+#[post("/create")]
+pub async fn callback_file_upload(file_request: web::Json<FileOpsCallBack>, state: web::Data<AppState>) -> ApiResponse {
     // Handle the file upload callback from the storage server
-    let is_success = path.into_inner();
     let file_request = file_request.into_inner();
 
     // Remove the file lock either on success or failure of the upload
@@ -125,44 +124,111 @@ pub async fn callback_file_upload(path: web::Path<bool>, file_request: web::Json
         false
     ).await?;
 
-    // TODO: Implement the logic to process the file upload callback
-    if is_success {
-        // Add the file version record or replace
-        add_or_update_file_version(
-            &state.pg_pool,
-            &file_request.file_id,
-            file_request.file_version,
-            &file_request.file_location,
-            &file_request.owner_id,
-            &file_request.hosted_at,
-            file_request.file_size,
-            &file_request.metadata,
-            &file_request.file_hash,
-        ).await?;
+    // Add the file version record or replace
+    add_or_update_file_version(
+        &state.pg_pool,
+        &file_request.file_id,
+        file_request.file_version,
+        &file_request.file_location,
+        &file_request.owner_id,
+        &file_request.hosted_at,
+        file_request.file_size,
+        &file_request.metadata,
+        &file_request.file_hash,
+    ).await?;
 
-        // TODO: Handle if its a replacement of an existing file version
-        // - If it is replacing an existing file version, we might need to adjust the quota accordingly
+    // Update the quota after adding the file version
+    update_quota(
+        &state.pg_pool,
+        &file_request.owner_id,
+        &file_request.hosted_at,
+        file_request.file_size,
+        1
+    ).await?;
 
-        // Update the quota after adding the file version
-        update_quota(
-            &state.pg_pool,
-            &file_request.owner_id,
-            &file_request.hosted_at,
-            file_request.file_size,
-            1
-        ).await?;
+    Ok(HttpResponse::Ok().finish())
+}
 
-    } else {
-        // If the upload failed and it's the first version, delete the file entry
-        if file_request.file_version == 1 {
-            delete_file(
-                &state.pg_pool,
-                &file_request.folder_id,
-                &file_request.owner_id,
-                &file_request.file_id,
-            ).await?;
-        }
-    }
+
+#[post("/replace")]
+pub async fn callback_file_replace(file_request: web::Json<FileOpsCallBack>, state: web::Data<AppState>) -> ApiResponse {
+    // Handle the file replace callback from the storage server
+    let file_request = file_request.into_inner();
+
+    // Remove the file lock either on success or failure of the replace operation
+    lock_base_file_entry(
+        &state.pg_pool,
+        &file_request.folder_id,
+        &file_request.owner_id,
+        &file_request.file_id,
+        false
+    ).await?;
+
+    // Fetch the existing file version size before replacing it
+    let existing_file_version_size = get_file_version_size(
+        &state.pg_pool,
+        &file_request.owner_id,
+        &file_request.file_id,
+        file_request.file_version,
+    ).await?;
+
+    // How much quota to adjust based on the difference between the new and existing file version sizes
+    let quota_adjustment: i64 = file_request.file_size - existing_file_version_size;
+
+    // Add the file version record or replace
+    add_or_update_file_version(
+        &state.pg_pool,
+        &file_request.file_id,
+        file_request.file_version,
+        &file_request.file_location,
+        &file_request.owner_id,
+        &file_request.hosted_at,
+        file_request.file_size,
+        &file_request.metadata,
+        &file_request.file_hash,
+    ).await?;
+
+    // Update the quota after adding the file version
+    update_quota(
+        &state.pg_pool,
+        &file_request.owner_id,
+        &file_request.hosted_at,
+        quota_adjustment,
+        0
+    ).await?;
+
+    Ok(HttpResponse::Ok().finish())
+}
+
+
+#[post("/delete")]
+pub async fn callback_file_delete(file_request: web::Json<FileOpsCallBack>, state: web::Data<AppState>) -> ApiResponse {
+    // Handle the file delete callback from the storage server
+    let file_request = file_request.into_inner();
+
+    // Fetch the existing file version size before deleting it
+    let existing_file_version_size = get_file_version_size(
+        &state.pg_pool,
+        &file_request.owner_id,
+        &file_request.file_id,
+        file_request.file_version,
+    ).await?;
+
+    // Delete the specified file version from the database
+    delete_file_versions(
+        &state.pg_pool,
+        &file_request.file_id,
+        &[file_request.file_version],
+    ).await?;
+    
+    // Update the quota after deleting the file version
+    update_quota(
+        &state.pg_pool,
+        &file_request.owner_id,
+        &file_request.hosted_at,
+        -existing_file_version_size,
+        0
+    ).await?;
 
     Ok(HttpResponse::Ok().finish())
 }
