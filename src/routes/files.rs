@@ -206,16 +206,8 @@ pub async fn callback_file_delete(file_request: web::Json<FileOpsCallBack>, stat
     // Handle the file delete callback from the storage server
     let file_request = file_request.into_inner();
 
-    // Fetch the existing file version size before deleting it
-    let existing_file_version_size = get_file_version_size(
-        &state.pg_pool,
-        &file_request.owner_id,
-        &file_request.file_id,
-        file_request.file_version,
-    ).await?;
-
     // Delete the specified file version from the database
-    delete_file_versions(
+    let (total_deleted_size, total_deleted_count) = delete_file_versions(
         &state.pg_pool,
         &file_request.file_id,
         &[file_request.file_version],
@@ -226,8 +218,8 @@ pub async fn callback_file_delete(file_request: web::Json<FileOpsCallBack>, stat
         &state.pg_pool,
         &file_request.owner_id,
         &file_request.hosted_at,
-        -existing_file_version_size,
-        0
+        -total_deleted_size,
+        -total_deleted_count
     ).await?;
 
     Ok(HttpResponse::Ok().finish())
