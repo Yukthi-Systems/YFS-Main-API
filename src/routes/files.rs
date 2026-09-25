@@ -4,9 +4,9 @@ use crate::handlers::access::{authorize_file_access, authorize_folder_access, Sh
 use actix_web::{HttpMessage, HttpRequest, HttpResponse, delete, patch, post, put, web};
 use crate::models::files::{FileOpsCallBack, FileOpsRequest, FileOpsType, FileLocation};
 use crate::handlers::deletion::{delete_file_and_versions, delete_file_version};
+use crate::database::user::{select_server_with_enough_quota, update_quota};
 use crate::models::errors::{ApiResponse, AppError};
 use crate::state::{AppState, API_SETTINGS};
-use crate::database::user::update_quota;
 use crate::models::user::SessionUser;
 use uuid::Uuid;
 
@@ -24,12 +24,11 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
     // Example: Encryption at rest, File size limits, Allowed file types, etc.
     // Also SSO should only give the available servers list, so that Org level changes do not affect ongoing operations
 
-    // TODO: Check quota for upload, see if the user and the server has enough storage or not
-
     let operation_type = FileOpsType::Upload;
 
     // Validate the file operation request
     file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
+    session_user.validate_quota(file_request.expected_file_size as f64)?;
 
     let file_id = file_request.file_id.unwrap_or(Uuid::new_v4());
     let file_owner_id: Uuid;
@@ -82,6 +81,17 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
         ).await?;
     }
 
+    // Check quota for upload, see if the server has enough storage or not
+    let server_info = select_server_with_enough_quota(
+        &state.pg_pool,
+        &session_user.organization_id,
+        file_request.expected_file_size as i64
+    ).await?;
+    if server_info.is_none() {
+        return Err(AppError::Unprocessable("No server with enough quota available, please contact the administrator".into()));
+    }
+    let server_info = server_info.unwrap();
+
     // Build the file location URL for the storage server
     let file_location = build_file_location(
         BASE_FOLDER_PATH,
@@ -94,15 +104,15 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
 
     let file_location_struct = FileLocation {
         file_location: file_location.clone(),
-        hosted_at: API_SETTINGS.file_store_host.clone(),
+        hosted_at: server_info.host_address.clone(),
     };
 
     let file_storage_api = file_request.generate_api_struct(file_location_struct, file_owner_id, file_id);
 
     // Generate an upload session for the file with the storage server
     let upload_session_response = generate_upload_sessions(
-        &API_SETTINGS.file_store_host,
-        &API_SETTINGS.file_store_api_key,
+        &server_info.host_address,
+        &server_info.secret_key,
         &serde_json::json!([file_storage_api]),
     ).await?;
 
@@ -408,8 +418,6 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
     // Example: Encryption at rest, File size limits, Allowed file types, etc.
     // Also SSO should only give the available servers list, so that Org level changes do not affect ongoing operations
 
-    // TODO: Check quota for upload, see if the user and the server has enough storage or not
-
     let to_write = to_write.into_inner();
     let operation_type_read = FileOpsType::Download;
     let operation_type_write = if to_write { FileOpsType::Upload } else { FileOpsType::Download };
@@ -418,6 +426,7 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
     // Since a WOPI session will involve both downloading and uploading the file
     file_request.validate(&operation_type_read, session_user.is_file_versioning_enabled)?;
     file_request.validate(&operation_type_write, session_user.is_file_versioning_enabled)?;
+    session_user.validate_quota(file_request.expected_file_size as f64 * if to_write { 2.75 } else { 0.0 })?;
 
     // File ID should be provided for download operations
     let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step

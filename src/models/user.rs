@@ -79,9 +79,13 @@ pub struct UserQuota {
 #[derive(Serialize)]
 pub struct ServerInfo {
     pub host_address: String,
+    pub secret_key: String,
+
     pub dedicated_to_organization_id: Option<Uuid>,
+
     pub server_name: String,
     pub server_description: String,
+
     pub quota_allocated_bytes: i64,
     pub quota_utilized_bytes: i64,
 }
@@ -118,6 +122,7 @@ impl From<Row> for ServerInfo {
     fn from(row: Row) -> Self {
         ServerInfo {
             host_address: row.get("host_address"),
+            secret_key: row.get("secret_key"),
             dedicated_to_organization_id: row.get("dedicated_to_organization_id"),
             server_name: row.get("server_name"),
             server_description: row.get("server_description"),
@@ -179,6 +184,15 @@ impl SessionUser {
             .await?;
 
         Ok(resp)
+    }
+
+
+    /// Validates the user's quota to ensure they have enough available storage for new uploads.
+    pub fn validate_quota(&self, required_space: f64) -> Result<(), AppError> {
+        if self.quota_allocated - self.quota_utilized < required_space {
+            return Err(AppError::Unprocessable("Not enough quota available".into()));
+        }
+        Ok(())
     }
 }
 

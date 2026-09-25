@@ -331,6 +331,7 @@ pub async fn get_all_servers_info(db_pool: &PgPool) -> Result<Vec<ServerInfo>, A
             r#"
             SELECT
                 host_address,
+                secret_key,
                 dedicated_to_organization_id,
                 server_name,
                 server_description,
@@ -343,4 +344,58 @@ pub async fn get_all_servers_info(db_pool: &PgPool) -> Result<Vec<ServerInfo>, A
         .await?;
 
     Ok(ServerInfo::from_rows(rows))
+}
+
+
+pub async fn select_server_with_enough_quota(db_pool: &PgPool, organization_id: &Uuid, required_space: i64) -> Result<Option<ServerInfo>, AppError> {
+    let client = db_pool.get().await?;
+
+    let row = client
+        .query_opt(
+            r#"
+            SELECT
+                s.host_address,
+                s.secret_key,
+                s.dedicated_to_organization_id,
+                s.server_name,
+                s.server_description,
+                s.quota_allocated_bytes,
+                s.quota_utilized_bytes,
+                s.quota_allocated_bytes - s.quota_utilized_bytes
+                    AS available_bytes
+            FROM servers s
+            WHERE
+                s.quota_allocated_bytes - s.quota_utilized_bytes >= $2
+                AND (
+                    -- If the organization has dedicated servers,
+                    -- select only its dedicated servers.
+                    (
+                        EXISTS (
+                            SELECT 1
+                            FROM servers
+                            WHERE dedicated_to_organization_id = $1
+                        )
+                        AND s.dedicated_to_organization_id = $1
+                    )
+                    OR
+                    -- Otherwise, select general-purpose servers.
+                    (
+                        NOT EXISTS (
+                            SELECT 1
+                            FROM servers
+                            WHERE dedicated_to_organization_id = $1
+                        )
+                        AND s.dedicated_to_organization_id IS NULL
+                    )
+                )
+            ORDER BY
+                available_bytes DESC,
+                s.host_address ASC
+            LIMIT 1
+            "#,
+            &[organization_id, &required_space],
+        )
+        .await?;
+
+    Ok(row.map(ServerInfo::from))
 }
