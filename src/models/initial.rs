@@ -32,7 +32,6 @@ pub struct RmqSettings {
 pub struct AppSettings {
     pub pg_settings: PgSettings,
     pub redis_settings: RedisSettings,
-    pub rmq_settings: RmqSettings,
     pub enable_logging: bool,
 }
 
@@ -43,7 +42,6 @@ pub struct ApiSettings {
     pub sso_api_url: String,
     pub sso_api_key: String,
     pub file_store_api_key: String, // Same for all file store hosts
-    pub file_store_host: String,    // TODO: Temp. only we will later make this via SSO API (available servers per org)
     pub max_instant_download_size: i64,
     pub download_manager_api_url: String,
     pub download_manager_api_key: String,
@@ -154,7 +152,6 @@ impl AppSettings {
         AppSettings {
             pg_settings: PgSettings::from_env(),
             redis_settings: RedisSettings::from_env(),
-            rmq_settings: RmqSettings::from_env(),
             enable_logging,
         }
     }
@@ -179,9 +176,7 @@ impl ApiSettings {
         let sso_api_key = env_var("SSO_API_KEY").expect("SSO_API_KEY must be set");
 
         let self_api_key = env_var("SELF_API_KEY").expect("SELF_API_KEY must be set");
-
         let file_store_api_key = env_var("FILE_STORE_API_KEY").expect("FILE_STORE_API_KEY must be set");
-        let file_store_host = env_var("FILE_STORE_HOST").expect("FILE_STORE_HOST must be set");
 
         let max_instant_download_size = env_var("MAX_INSTANT_DOWNLOAD_SIZE")
             .ok()
@@ -200,7 +195,6 @@ impl ApiSettings {
             allowed_origins,
             self_api_key,
             file_store_api_key,
-            file_store_host,
             sso_api_url,
             sso_api_key,
             download_manager_api_url,
