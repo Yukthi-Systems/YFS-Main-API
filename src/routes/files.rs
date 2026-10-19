@@ -97,7 +97,6 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
         BASE_FOLDER_PATH,
         &session_user.organization_id,
         &file_owner_id,
-        &file_request.folder_id,
         &file_id,
         file_request.file_version
     );

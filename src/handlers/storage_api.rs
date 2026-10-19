@@ -9,18 +9,19 @@ pub fn build_file_location(
     base_folder_path: &str,
     org_id: &Uuid,
     user_id: &Uuid,
-    folder_id: &Uuid,
     file_id: &Uuid,
     file_version: i32,
 ) -> String {
     // Example Location
-    // "/data/yfs/org-id/user-id/folder-id/file-id.version-count"
+    // "/data/yfs/org-id/user-id/file-id{0..2}/file-id/file-id.version-count"
+    // No folder ID, because the file might change its parent folder over time
+
     format!(
         "{}/{}/{}/{}/{}.{}",
         base_folder_path,
         org_id,
         user_id,
-        folder_id,
+        &file_id.to_string()[0..3],
         file_id,
         file_version
     )

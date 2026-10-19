@@ -129,7 +129,7 @@ pub async fn check_user_session(db_pool: &PgPool, refresh_token: &Uuid, sso_toke
                 WHERE s.user_id = $1
                   AND s.refresh_token = $2
                   AND s.sso_token = $3
-                  AND s.expires_at >= CURRENT_TIMESTAMP
+                  AND s.expires_at > CURRENT_TIMESTAMP
             )
             "#,
             &[user_id, refresh_token, &sso_token],
