@@ -190,18 +190,23 @@ impl SessionUser {
 
 
     /// Validates the user's quota to ensure they have enough available storage for new uploads (Less than or equal to required space)
-    pub async fn validate_quota(&self, pg_pool: &PgPool, required_space_bytes: f64) -> Result<(), AppError> {
-        let available_space: f64 = self.quota_allocated - self.quota_utilized;
-        let required_space: f64 = required_space_bytes / (1024.0 * 1024.0 * 1024.0);
+    pub async fn validate_quota(&self, pg_pool: &PgPool, required_space_bytes: u64) -> Result<(), AppError> {
+        const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
-        if available_space <= required_space {
+        let available_space_in_gb: f64 = self.quota_allocated - self.quota_utilized;
+        let allocated_space_bytes: u64 = (self.quota_allocated * BYTES_PER_GIB) as u64;
+        let available_space_bytes: u64 = (available_space_in_gb * BYTES_PER_GIB) as u64;
+
+        if available_space_bytes <= required_space_bytes {
             return Err(AppError::Unprocessable("Not enough quota available".into()));
         }
 
         // Check if the required space exceeds the real live DB quota
         let live_user_quota = get_user_quota_by_id(pg_pool, &self.user_id).await?;
 
-        if live_user_quota.used_storage_bytes as f64 / (1024.0 * 1024.0 * 1024.0) <= required_space {
+        let live_available_space_bytes: u64 = live_user_quota.used_storage_bytes as u64 - allocated_space_bytes;
+
+        if live_available_space_bytes <= required_space_bytes {
             return Err(AppError::Unprocessable("Storage requirement exceeds actual available quota".into()));
         }
 

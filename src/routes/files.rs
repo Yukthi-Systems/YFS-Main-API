@@ -28,7 +28,7 @@ pub async fn request_file_upload(request: HttpRequest, file_request: web::Json<F
 
     // Validate the file operation request
     file_request.validate(&operation_type, session_user.is_file_versioning_enabled)?;
-    session_user.validate_quota(&state.pg_pool, file_request.expected_file_size as f64).await?;
+    session_user.validate_quota(&state.pg_pool, file_request.expected_file_size).await?;
 
     let file_id = file_request.file_id.unwrap_or(Uuid::new_v4());
     let file_owner_id: Uuid;
@@ -425,7 +425,7 @@ pub async fn create_wopi_session(request: HttpRequest, to_write: web::Path<bool>
     // Since a WOPI session will involve both downloading and uploading the file
     file_request.validate(&operation_type_read, session_user.is_file_versioning_enabled)?;
     file_request.validate(&operation_type_write, session_user.is_file_versioning_enabled)?;
-    session_user.validate_quota(&state.pg_pool, file_request.expected_file_size as f64 * if to_write { 2.75 } else { 0.0 }).await?;
+    session_user.validate_quota(&state.pg_pool, file_request.expected_file_size * if to_write { 3 } else { 0 }).await?;
 
     // File ID should be provided for download operations
     let file_id = file_request.file_id.unwrap();    // Checks are already done in the validation step
