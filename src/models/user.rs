@@ -1,4 +1,6 @@
 use crate::models::{PermissionSet, errors::AppError, shares::ExternalShare};
+use crate::database::user::get_user_quota_by_id;
+use deadpool_postgres::Pool as PgPool;
 use serde::{Deserialize, Serialize};
 use crate::state::API_SETTINGS;
 use tokio_postgres::row::Row;
@@ -187,14 +189,22 @@ impl SessionUser {
     }
 
 
-    /// Validates the user's quota to ensure they have enough available storage for new uploads.
-    pub fn validate_quota(&self, required_space_bytes: f64) -> Result<(), AppError> {
+    /// Validates the user's quota to ensure they have enough available storage for new uploads (Less than or equal to required space)
+    pub async fn validate_quota(&self, pg_pool: &PgPool, required_space_bytes: f64) -> Result<(), AppError> {
         let available_space: f64 = self.quota_allocated - self.quota_utilized;
         let required_space: f64 = required_space_bytes / (1024.0 * 1024.0 * 1024.0);
 
-        if available_space < required_space {
+        if available_space <= required_space {
             return Err(AppError::Unprocessable("Not enough quota available".into()));
         }
+
+        // Check if the required space exceeds the real live DB quota
+        let live_user_quota = get_user_quota_by_id(pg_pool, &self.user_id).await?;
+
+        if live_user_quota.used_storage_bytes as f64 / (1024.0 * 1024.0 * 1024.0) <= required_space {
+            return Err(AppError::Unprocessable("Storage requirement exceeds actual available quota".into()));
+        }
+
         Ok(())
     }
 }
