@@ -194,8 +194,9 @@ impl SessionUser {
         const BYTES_PER_GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
         let available_space_in_gb: f64 = self.quota_allocated - self.quota_utilized;
-        let allocated_space_bytes: u64 = (self.quota_allocated * BYTES_PER_GIB) as u64;
-        let available_space_bytes: u64 = (available_space_in_gb * BYTES_PER_GIB) as u64;
+        let allocated_space_bytes: f64 = self.quota_allocated * BYTES_PER_GIB;
+        let available_space_bytes: f64 = available_space_in_gb * BYTES_PER_GIB;
+        let required_space_bytes: f64 = required_space_bytes as f64;
 
         if available_space_bytes <= required_space_bytes {
             return Err(AppError::Unprocessable("Not enough quota available".into()));
@@ -204,8 +205,7 @@ impl SessionUser {
         // Check if the required space exceeds the real live DB quota
         let live_user_quota = get_user_quota_by_id(pg_pool, &self.user_id).await?;
 
-        let live_available_space_bytes: u64 = live_user_quota.used_storage_bytes as u64 - allocated_space_bytes;
-
+        let live_available_space_bytes: f64 = allocated_space_bytes - (live_user_quota.used_storage_bytes as f64);
         if live_available_space_bytes <= required_space_bytes {
             return Err(AppError::Unprocessable("Storage requirement exceeds actual available quota".into()));
         }
